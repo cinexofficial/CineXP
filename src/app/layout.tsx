@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import Navbar from "@/components/ui/Navbar";
 import CommandPalette from "@/components/ui/CommandPalette";
 import InstallPWA from "@/components/ui/InstallPWA";
@@ -36,6 +37,7 @@ export default function RootLayout({
         <CommandPalette />
         <InstallPWA />
         {children}
+        <Analytics />
       </body>
     </html>
   );
