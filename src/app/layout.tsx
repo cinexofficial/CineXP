@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import Navbar from "@/components/ui/Navbar";
 import CommandPalette from "@/components/ui/CommandPalette";
 import InstallPWA from "@/components/ui/InstallPWA";
@@ -70,6 +71,7 @@ export default function RootLayout({
         <InstallPWA />
         <CacheBuster />
         {children}
+        <SpeedInsights />
       </body>
     </html>
   );
