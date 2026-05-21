@@ -142,6 +142,13 @@ export default function DownloadClient({ token, waitingPageEnabled = true }: { t
               </div>
             )}
 
+            {/* Dynamic Ad inside Card - High Visibility (300x250) */}
+            {waitingPageEnabled && (
+              <div className={styles.adWrapper} style={{ marginTop: '0.5rem', marginBottom: '1rem', minHeight: '250px' }}>
+                <AdBanner adKey="87b1f98e2b43417d714893dfa11c7e9f" width={300} height={250} />
+              </div>
+            )}
+
             {status === 'error' ? (
               <div className={styles.errorState}>
                 <h3>❌ {errorMsg}</h3>
@@ -189,6 +196,13 @@ export default function DownloadClient({ token, waitingPageEnabled = true }: { t
           {waitingPageEnabled && (
             <div className={styles.adWrapper} style={{ minHeight: '300px', padding: '1rem', marginTop: '1rem' }}>
               <AdNative />
+            </div>
+          )}
+
+          {/* Extra Bottom Banner Ad (468x60) for 40% Volume Increase */}
+          {waitingPageEnabled && (
+            <div className={styles.adWrapper} style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
+              <AdBanner adKey="47487de96b361fef4cd73964201393c1" width={468} height={60} />
             </div>
           )}
 
