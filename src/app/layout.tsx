@@ -127,6 +127,16 @@ export default async function RootLayout({
         {adSettings.popunderEnabled && (
           <Script src="https://eagerdazzle.com/ab/84/54/ab8454e896335fcc65131264fa488955.js" strategy="afterInteractive" />
         )}
+        
+        {/* Monetag MultiTag - Handled via Next.js Script to avoid blocking rendering */}
+        {adSettings.popunderEnabled && (
+          <Script 
+            src="https://quge5.com/88/tag.min.js" 
+            strategy="afterInteractive"
+            data-zone="241599"
+            data-cfasync="false"
+          />
+        )}
         <BackgroundGradient />
         <Navbar />
         <InstallPWA />
