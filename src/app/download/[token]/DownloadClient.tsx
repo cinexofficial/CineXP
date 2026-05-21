@@ -155,6 +155,19 @@ export default function DownloadClient({ token, waitingPageEnabled = true }: { t
                 <button className={`btn ${styles.downloadButton}`} onClick={handleDownloadClick}>
                   ⬇ DOWNLOAD NOW
                 </button>
+                <div style={{ 
+                  marginTop: '0.85rem', 
+                  fontSize: '0.78rem', 
+                  color: 'rgba(255, 255, 255, 0.55)', 
+                  textAlign: 'center',
+                  fontStyle: 'italic',
+                  lineHeight: '1.4',
+                  maxWidth: '320px',
+                  marginLeft: 'auto',
+                  marginRight: 'auto'
+                }}>
+                  ⚠️ Please wait <strong style={{ color: '#ffb700' }}>5 seconds</strong> on the redirected page for your download to begin automatically.
+                </div>
               </>
             ) : (
               <>

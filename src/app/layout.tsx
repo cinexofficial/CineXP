@@ -124,11 +124,9 @@ export default async function RootLayout({
         {adSettings.socialBarEnabled && (
           <Script src="https://eagerdazzle.com/5f/69/5d/5f695dea02fd6964afe023097b2af686.js" strategy="afterInteractive" />
         )}
-        {adSettings.popunderEnabled && (
-          <Script src="https://eagerdazzle.com/ab/84/54/ab8454e896335fcc65131264fa488955.js" strategy="afterInteractive" />
-        )}
         
-        {/* Monetag MultiTag - Handled via Next.js Script to avoid blocking rendering */}
+        {/* Monetag MultiTag - Handles Popunder, Vignette, and Interstitials.
+            Adsterra Popunder is commented out below to prevent double-popup user frustration. */}
         {adSettings.popunderEnabled && (
           <Script 
             src="https://quge5.com/88/tag.min.js" 
