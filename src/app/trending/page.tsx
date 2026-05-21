@@ -2,12 +2,14 @@ import { getTrending, getMediaById, type TMDBMediaItem } from "@/lib/tmdb";
 import MediaCard from "@/components/MediaCard";
 import Top10Row from "@/components/ui/Top10Row";
 import { prisma } from "@/lib/admin";
+import type { Metadata } from "next";
 
 export const dynamic = 'force-dynamic';
 
-export const metadata = {
-  title: 'Trending | CineXP',
+export const metadata: Metadata = {
+  title: 'Trending',
   description: 'See what is hot and trending right now on CineXP.',
+  alternates: { canonical: 'https://www.cinexp.site/trending' }
 };
 
 export default async function TrendingPage() {

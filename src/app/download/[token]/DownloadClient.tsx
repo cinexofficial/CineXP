@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import styles from './download.module.css';
 import AdBanner from '@/components/ads/AdBanner';
@@ -23,7 +23,6 @@ export default function DownloadClient({ token, waitingPageEnabled = true }: { t
   const [finalSubUrl, setFinalSubUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   
-  const scriptsInjected = useRef(false);
 
   useEffect(() => {
     // 1. Decode token for immediate display
@@ -39,22 +38,7 @@ export default function DownloadClient({ token, waitingPageEnabled = true }: { t
       return;
     }
 
-    // 2. Inject Popunder & Social Bar (once)
-    if (waitingPageEnabled && !scriptsInjected.current) {
-      scriptsInjected.current = true;
-      
-      // Popunder
-      const popunder = document.createElement('script');
-      popunder.src = 'https://eagerdazzle.com/ab/84/54/ab8454e896335fcc65131264fa488955.js';
-      popunder.async = true;
-      document.body.appendChild(popunder);
-
-      // Social Bar
-      const socialBar = document.createElement('script');
-      socialBar.src = 'https://eagerdazzle.com/5f/69/5d/5f695dea02fd6964afe023097b2af686.js';
-      socialBar.async = true;
-      document.body.appendChild(socialBar);
-    }
+    // Popunder & Social Bar are loaded globally via layout.tsx — no duplicate injection needed
   }, [token, router]);
 
   useEffect(() => {

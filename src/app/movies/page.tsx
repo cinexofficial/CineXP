@@ -3,10 +3,12 @@ import MediaCard from "@/components/MediaCard";
 import AdSlot from "@/components/ads/AdSlot";
 import { Fragment } from "react";
 import { getAdSettings } from "@/lib/settings";
+import type { Metadata } from "next";
 
-export const metadata = {
-  title: 'Movies | CineXP',
+export const metadata: Metadata = {
+  title: 'Movies',
   description: 'Discover popular and highly rated movies on CineXP.',
+  alternates: { canonical: 'https://www.cinexp.site/movies' }
 };
 
 export default async function MoviesPage() {

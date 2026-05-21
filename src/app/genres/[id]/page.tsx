@@ -1,18 +1,18 @@
 import { getDiscoverByGenre, GENRE_MAP, type TMDBMediaItem } from "@/lib/tmdb";
 import MediaCard from "@/components/MediaCard";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 
-
-
-export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
   const genreName = GENRE_MAP[parseInt(id, 10)];
   if (!genreName) return { title: 'Not Found' };
   
   return {
-    title: `${genreName} Content | CineXP`,
-    description: `Discover top rated and popular ${genreName} movies and TV shows.`
-  }
+    title: `${genreName} Content`,
+    description: `Discover top rated and popular ${genreName} movies and TV shows.`,
+    alternates: { canonical: `https://www.cinexp.site/genres/${id}` }
+  };
 }
 
 export default async function GenreSpecificPage({ params }: { params: Promise<{ id: string }> }) {

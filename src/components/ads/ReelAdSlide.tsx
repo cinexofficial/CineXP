@@ -1,74 +1,16 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import AdBanner from './AdBanner';
 
 /**
  * A fullscreen reel-style ad slide that blends into the vertical scroll feed.
  * Renders a 300x250 banner centered with a "Sponsored" label like Instagram.
- * Uses iframe isolation to prevent atOptions global variable collision.
- * 
+ * Uses the shared sequential AdBanner loader (direct DOM injection, no iframe).
+ *
  * If an ad-blocker prevents loading, the entire slide collapses so the
  * scroll feed isn't interrupted by empty space.
  */
 export default function ReelAdSlide() {
-  const adRef = useRef<HTMLDivElement>(null);
-  const injectedRef = useRef(false);
-  const [adFailed, setAdFailed] = useState(false);
-
-  useEffect(() => {
-    if (!adRef.current || injectedRef.current) return;
-    injectedRef.current = true;
-
-    const adKey = '87b1f98e2b43417d714893dfa11c7e9f';
-
-    // Create isolated iframe for this ad
-    const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'border:none;overflow:hidden;width:300px;height:250px;display:block;';
-    iframe.scrolling = 'no';
-    iframe.setAttribute('frameborder', '0');
-
-    adRef.current.appendChild(iframe);
-
-    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (iframeDoc) {
-      iframeDoc.open();
-      iframeDoc.write([
-        '<!DOCTYPE html><html><head>',
-        '<base target="_blank">',
-        '<style>*{margin:0;padding:0;}body{overflow:hidden;}</style>',
-        '</head><body>',
-        '<script>',
-        `atOptions={'key':'${adKey}','format':'iframe','height':250,'width':300,'params':{}};`,
-        '<\/script>',
-        `<script src="//www.highperformanceformat.com/${adKey}/invoke.js"><\/script>`,
-        '</body></html>',
-      ].join(''));
-      iframeDoc.close();
-    }
-
-    const checkTimer = setTimeout(() => {
-      if (!adRef.current) return;
-      try {
-        const doc = iframe.contentDocument || iframe.contentWindow?.document;
-        if (doc && doc.body && doc.body.childElementCount <= 2) {
-          setAdFailed(true);
-        }
-      } catch {
-        // Cross-origin means ad network redirected → working
-      }
-    }, 5000);
-
-    return () => {
-      clearTimeout(checkTimer);
-      injectedRef.current = false;
-      if (adRef.current) {
-        adRef.current.innerHTML = '';
-      }
-    };
-  }, []);
-
-  // If blocked, collapse to nothing — reels scroll right past it
-  if (adFailed) return null;
 
   return (
     <div
@@ -134,16 +76,17 @@ export default function ReelAdSlide() {
         </span>
       </div>
 
-      {/* Ad container */}
+      {/* Ad container — uses the shared sequential queue via AdBanner */}
       <div
-        ref={adRef}
         style={{
           borderRadius: '16px',
           overflow: 'hidden',
           border: '1px solid rgba(255,255,255,0.06)',
           boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
         }}
-      />
+      >
+        <AdBanner adKey="87b1f98e2b43417d714893dfa11c7e9f" width={300} height={250} />
+      </div>
     </div>
   );
 }

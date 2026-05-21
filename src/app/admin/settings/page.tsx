@@ -91,35 +91,6 @@ export default function SettingsPage() {
   }
 
 
-  const updateAdSetting = async (key: string, enabled: boolean) => {
-    setAppConfig((prev: any) => ({ ...prev, [key]: enabled ? 'true' : 'false' }))
-    setLoadingAction('update_ad_settings')
-    try {
-      const res = await fetch('/api/admin/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'update_ad_settings',
-          value: {
-            posters: key === 'AD_POSTERS_ENABLED' ? enabled : appConfig?.AD_POSTERS_ENABLED !== 'false',
-            popunder: key === 'AD_POPUNDER_ENABLED' ? enabled : appConfig?.AD_POPUNDER_ENABLED !== 'false',
-            native: key === 'AD_NATIVE_ENABLED' ? enabled : appConfig?.AD_NATIVE_ENABLED !== 'false',
-            social_bar: key === 'AD_SOCIAL_BAR_ENABLED' ? enabled : appConfig?.AD_SOCIAL_BAR_ENABLED !== 'false',
-            waiting_page: key === 'AD_WAITING_PAGE_ENABLED' ? enabled : appConfig?.AD_WAITING_PAGE_ENABLED !== 'false',
-          }
-        })
-      })
-      if (res.ok) {
-        showToast('Ad settings updated', 'success')
-      } else {
-        showToast('Failed to update ads', 'error')
-      }
-    } catch {
-      showToast('Network error', 'error')
-    } finally {
-      setLoadingAction(null)
-    }
-  }
 
   return (
     <>
@@ -139,47 +110,6 @@ export default function SettingsPage() {
         </motion.p>
       </div>
 
-      {/* Ad Configuration */}
-      <motion.div
-        className="admin-section-card"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.12 }}
-      >
-        <h2>💰 Monetization</h2>
-        <p style={{ fontSize: '0.85rem', opacity: 0.5, marginBottom: '1.25rem' }}>
-          Enable or disable specific ad formats globally.
-        </p>
-        
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {[
-            { key: 'AD_POSTERS_ENABLED', label: 'Poster/Banner Ads' },
-            { key: 'AD_NATIVE_ENABLED', label: 'Native Feed Ads' },
-            { key: 'AD_POPUNDER_ENABLED', label: 'Popunder Ads' },
-            { key: 'AD_SOCIAL_BAR_ENABLED', label: 'Social Bar Ads' },
-            { key: 'AD_WAITING_PAGE_ENABLED', label: 'Waiting Page Ads (Combined)' },
-          ].map((ad) => {
-            const isEnabled = appConfig ? appConfig[ad.key] !== 'false' : true;
-            return (
-              <div key={ad.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid var(--admin-border)' }}>
-                <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>{ad.label}</span>
-                <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                  <input 
-                    type="checkbox" 
-                    checked={isEnabled}
-                    onChange={(e) => updateAdSetting(ad.key, e.target.checked)}
-                    disabled={loadingAction === 'update_ad_settings' || !appConfig}
-                    style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: 'var(--primary)' }}
-                  />
-                  <span style={{ marginLeft: '0.5rem', fontSize: '0.8rem', opacity: 0.7 }}>
-                    {isEnabled ? 'Enabled' : 'Disabled'}
-                  </span>
-                </label>
-              </div>
-            );
-          })}
-        </div>
-      </motion.div>
 
       {/* Cache Management */}
       <motion.div

@@ -34,30 +34,6 @@ export async function POST(request: Request) {
     switch (action) {
 
 
-      case 'update_ad_settings': {
-        const { posters, popunder, native, social_bar, waiting_page } = value;
-        const keys = [
-          { key: 'AD_POSTERS_ENABLED', val: String(posters) },
-          { key: 'AD_POPUNDER_ENABLED', val: String(popunder) },
-          { key: 'AD_NATIVE_ENABLED', val: String(native) },
-          { key: 'AD_SOCIAL_BAR_ENABLED', val: String(social_bar) },
-          { key: 'AD_WAITING_PAGE_ENABLED', val: String(waiting_page) },
-        ];
-        
-        // Execute sequentially or in a transaction
-        for (const item of keys) {
-          if (item.val !== 'undefined') {
-            await prisma.appSettings.upsert({
-              where: { key: item.key },
-              update: { value: item.val },
-              create: { key: item.key, value: item.val },
-            });
-          }
-        }
-        
-        return NextResponse.json({ success: true, message: 'Ad settings updated' });
-      }
-
       case 'bust_browser_cache': {
         // Get current version or default to "0"
         const current = await prisma.appSettings.findUnique({

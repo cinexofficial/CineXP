@@ -10,16 +10,83 @@ interface AdBannerProps {
 }
 
 /**
- * Safely renders an Adsterra banner ad inside an isolated iframe.
- * 
- * Each ad gets its own JavaScript scope via a sandboxed iframe, which
- * prevents the global `atOptions` collision that occurs when multiple
- * Adsterra ads are on the same page (the second ad would overwrite the
- * first ad's atOptions before invoke.js could read it).
- * 
- * Ad-blocker resilient: if the ad fails to load after 5s, the container
- * collapses to show no empty space.
+ * Renders an Adsterra banner ad directly in the page DOM.
+ *
+ * Uses a global sequential queue to prevent the `atOptions` collision
+ * that occurs when multiple Adsterra ads exist on the same page.
+ * Each ad's atOptions is set and invoke.js loaded one at a time,
+ * with the next ad only starting after the previous script finishes.
+ *
+ * Unlike the previous iframe-sandbox approach, this preserves:
+ *  - document.referrer → Adsterra can verify traffic source → higher CPM
+ *  - Parent page cookies → retargeting advertisers can bid → higher CPM
+ *  - Viewability / Intersection Observer → ads register as viewable → higher CPM
+ *
+ * Ad-blocker resilient: if the ad fails to render after 8s, the
+ * container collapses to show no empty space.
  */
+
+// ── Global Sequential Ad Queue ─────────────────────────────────
+// Module-level state: persists across component mounts within the
+// same JS session. Ensures only one atOptions + invoke.js pair
+// executes at a time, preventing the global variable collision.
+
+interface QueuedAd {
+  key: string;
+  format: string;
+  width: number;
+  height: number;
+  container: HTMLDivElement;
+}
+
+const pendingAds: QueuedAd[] = [];
+let processing = false;
+
+function processNext() {
+  if (processing || pendingAds.length === 0) return;
+  processing = true;
+
+  const ad = pendingAds.shift()!;
+
+  // If the component unmounted before we got to it, skip
+  if (!ad.container.isConnected) {
+    processing = false;
+    processNext();
+    return;
+  }
+
+  // Set atOptions on window — invoke.js reads this synchronously on execution
+  (window as any).atOptions = {
+    key: ad.key,
+    format: ad.format,
+    height: ad.height,
+    width: ad.width,
+    params: {},
+  };
+
+  const script = document.createElement('script');
+  script.src = `//www.highperformanceformat.com/${ad.key}/invoke.js`;
+
+  const onDone = () => {
+    processing = false;
+    // Brief delay ensures invoke.js has fully consumed atOptions
+    // before we overwrite it for the next ad
+    setTimeout(processNext, 150);
+  };
+
+  script.onload = onDone;
+  script.onerror = onDone;
+
+  ad.container.appendChild(script);
+}
+
+function enqueueAd(ad: QueuedAd) {
+  pendingAds.push(ad);
+  processNext();
+}
+
+// ── Component ──────────────────────────────────────────────────
+
 export default function AdBanner({ adKey, width, height, format = 'iframe' }: AdBannerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const injectedRef = useRef(false);
@@ -29,51 +96,32 @@ export default function AdBanner({ adKey, width, height, format = 'iframe' }: Ad
     if (!containerRef.current || injectedRef.current) return;
     injectedRef.current = true;
 
-    // Create an isolated iframe so each ad gets its own JS global scope
-    const iframe = document.createElement('iframe');
-    iframe.style.cssText = `border:none;overflow:hidden;width:${width}px;height:${height}px;display:block;`;
-    iframe.scrolling = 'no';
-    iframe.setAttribute('frameborder', '0');
+    enqueueAd({
+      key: adKey,
+      format,
+      width,
+      height,
+      container: containerRef.current,
+    });
 
-    containerRef.current.appendChild(iframe);
-
-    // Write the ad code into the iframe's own document
-    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (iframeDoc) {
-      iframeDoc.open();
-      iframeDoc.write([
-        '<!DOCTYPE html><html><head>',
-        '<base target="_blank">',
-        '<style>*{margin:0;padding:0;}body{overflow:hidden;}</style>',
-        '</head><body>',
-        '<script>',
-        `atOptions={'key':'${adKey}','format':'${format}','height':${height},'width':${width},'params':{}};`,
-        '<\/script>',
-        `<script src="//www.highperformanceformat.com/${adKey}/invoke.js"><\/script>`,
-        '</body></html>',
-      ].join(''));
-      iframeDoc.close();
-    }
-
-    // Ad-blocker check: if nothing rendered after 5s, collapse
+    // Ad-blocker detection: after invoke.js runs, it injects ad elements
+    // into the container. If only the script tag (1 child) or nothing
+    // exists after 8s, the ad was likely blocked.
     const checkTimer = setTimeout(() => {
       if (!containerRef.current) return;
-      try {
-        const doc = iframe.contentDocument || iframe.contentWindow?.document;
-        if (doc && doc.body && doc.body.childElementCount <= 2) {
-          setAdFailed(true);
-        }
-      } catch {
-        // Cross-origin means the ad network redirected → ad is working
+      if (containerRef.current.childElementCount <= 1) {
+        setAdFailed(true);
       }
-    }, 5000);
+    }, 8000);
 
     return () => {
       clearTimeout(checkTimer);
       injectedRef.current = false;
-      if (containerRef.current) {
-        containerRef.current.innerHTML = '';
-      }
+      // Remove from pending queue if not yet processed
+      const idx = pendingAds.findIndex(
+        (a) => a.container === containerRef.current
+      );
+      if (idx !== -1) pendingAds.splice(idx, 1);
     };
   }, [adKey, width, height, format]);
 

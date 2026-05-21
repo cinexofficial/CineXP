@@ -1,4 +1,18 @@
 import { getTrending, getMediaById, getUpcomingMovies, type TMDBMediaItem, type TMDBMovie } from "@/lib/tmdb";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: {
+    absolute: "CineXP — Watch Free Movies & TV Shows Online in HD"
+  },
+  description: "Stream the latest movies and trending TV shows free in HD. No sign-up required. Watch online now.",
+  openGraph: {
+    title: "CineXP — Watch Free Movies & TV Shows Online in HD",
+    description: "Stream the latest movies and trending TV shows free in HD.",
+    images: [{ url: "https://www.cinexp.site/og-rect-v2.png", width: 1200, height: 630 }]
+  },
+  alternates: { canonical: "https://www.cinexp.site" }
+};
 
 export const revalidate = 3600;
 import MediaCard from "@/components/MediaCard";

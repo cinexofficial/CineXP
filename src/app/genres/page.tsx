@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { GENRE_MAP } from '@/lib/tmdb';
 import ScrollReveal from '@/components/ui/ScrollReveal';
+import type { Metadata } from 'next';
 
-export const metadata = {
-  title: 'Genres | CineXP',
+export const metadata: Metadata = {
+  title: 'Genres',
   description: 'Explore movies and series by your favorite genres.',
+  alternates: { canonical: 'https://www.cinexp.site/genres' }
 };
 
 export default function GenresPage() {
