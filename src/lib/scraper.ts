@@ -2,36 +2,36 @@ import * as cheerio from 'cheerio';
 
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.112 Safari/537.36";
 
-export async function searchMovies(title: string, year: string, type: 'movie' | 'tv' = 'movie', domain: string = 'moviesmod.farm', season?: string) {
-  if (domain === 'moviesleech.link') {
+export async function searchMovies(title: string, year: string, type: 'movie' | 'tv' = 'movie', domain: string = 'moviesmod.army', season?: string) {
+  if (domain === 'moviesleech.bar') {
      const safeTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
      let urlsToTry: string[] = [];
 
      if (type === 'movie') {
          // Generic (language-agnostic) patterns first — WordPress 301-redirects to the full slug
          urlsToTry = [
-           `https://moviesleech.link/download-${safeTitle}-${year}/`,
-           `https://moviesleech.link/download-${safeTitle}-${year}-hindi-movie/`,
-           `https://moviesleech.link/download-${safeTitle}-${year}-hindi-movie-hdtc/`,
-           `https://moviesleech.link/download-${safeTitle}-${year}-hindi-dubbed-movie/`,
-           `https://moviesleech.link/download-${safeTitle}-${year}-movie/`,
-           `https://moviesleech.link/${safeTitle}-${year}/`
+           `https://moviesleech.bar/download-${safeTitle}-${year}/`,
+           `https://moviesleech.bar/download-${safeTitle}-${year}-hindi-movie/`,
+           `https://moviesleech.bar/download-${safeTitle}-${year}-hindi-movie-hdtc/`,
+           `https://moviesleech.bar/download-${safeTitle}-${year}-hindi-dubbed-movie/`,
+           `https://moviesleech.bar/download-${safeTitle}-${year}-movie/`,
+           `https://moviesleech.bar/${safeTitle}-${year}/`
          ];
      } else if (type === 'tv' && season) {
          // Generic (language-agnostic) patterns first for non-Hindi Indian TV
          urlsToTry = [
-           `https://moviesleech.link/download-${safeTitle}-${year}-season-${season}/`,
-           `https://moviesleech.link/download-${safeTitle}-season-${season}/`,
-           `https://moviesleech.link/download-${safeTitle}-${year}-season-${season}-hindi/`,
-           `https://moviesleech.link/download-${safeTitle}-season-${season}-hindi/`,
-           `https://moviesleech.link/download-${safeTitle}-${year}-season-${season}-hindi-web-series/`,
-           `https://moviesleech.link/download-${safeTitle}-season-${season}-hindi-web-series/`,
-           `https://moviesleech.link/${safeTitle}-${year}-season-${season}/`,
-           `https://moviesleech.link/${safeTitle}-season-${season}/`
+           `https://moviesleech.bar/download-${safeTitle}-${year}-season-${season}/`,
+           `https://moviesleech.bar/download-${safeTitle}-season-${season}/`,
+           `https://moviesleech.bar/download-${safeTitle}-${year}-season-${season}-hindi/`,
+           `https://moviesleech.bar/download-${safeTitle}-season-${season}-hindi/`,
+           `https://moviesleech.bar/download-${safeTitle}-${year}-season-${season}-hindi-web-series/`,
+           `https://moviesleech.bar/download-${safeTitle}-season-${season}-hindi-web-series/`,
+           `https://moviesleech.bar/${safeTitle}-${year}-season-${season}/`,
+           `https://moviesleech.bar/${safeTitle}-season-${season}/`
          ];
      }
 
-     console.log(`[Scraper] Bypassing Cloudflare Search for moviesleech.link, guessing post URL for ${title}...`);
+     console.log(`[Scraper] Bypassing Cloudflare Search for moviesleech.bar, guessing post URL for ${title}...`);
      for (const url of urlsToTry) {
         try {
            const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });

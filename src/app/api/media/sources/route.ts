@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-        const targetDomain = industry.toLowerCase() === 'bollywood' ? 'moviesleech.link' : 'moviesmod.farm';
+        const targetDomain = industry.toLowerCase() === 'bollywood' ? 'moviesleech.bar' : 'moviesmod.army';
         const parsedTmdbId = tmdbId ? parseInt(tmdbId) : null;
 
         // ── CACHE CHECK ──────────────────────────────────────────────
@@ -48,14 +48,13 @@ export async function GET(req: NextRequest) {
             });
             console.log(`[CineXP Pipeline] Scraping multiple seasons:`, seasonEntries.map(e => `S${e.season}(${e.year})`).join(', '));
             
-            if (targetDomain === 'moviesmod.farm') {
-                // Moviesmod: ALL seasons are on ONE page. Search once, extract per-season with targetSeason filter.
-                let postUrl = await searchMovies(title, year, 'tv', 'moviesmod.farm');
+            if (targetDomain === 'moviesmod.army') {
+                let postUrl = await searchMovies(title, year, 'tv', 'moviesmod.army');
                 if (!postUrl) {
                     // Fallback: try moviesleech per-season if moviesmod search fails entirely
                     console.log(`[CineXP Pipeline] Moviesmod search failed, falling back to moviesleech per-season...`);
                     const results = await Promise.all(seasonEntries.map(async ({ season: s, year: seasonYear }) => {
-                        const leechUrl = await searchMovies(title, seasonYear, 'tv', 'moviesleech.link', s);
+                        const leechUrl = await searchMovies(title, seasonYear, 'tv', 'moviesleech.bar', s);
                         if (leechUrl) return processPost(leechUrl, 'tv', title, Number(s), parsedTmdbId, industry);
                         return [];
                     }));
@@ -72,7 +71,7 @@ export async function GET(req: NextRequest) {
                 const results = await Promise.all(seasonEntries.map(async ({ season: s, year: seasonYear }) => {
                     let postUrl = await searchMovies(title, seasonYear, type as any, targetDomain, s);
                     if (!postUrl) {
-                        const altDomain = 'moviesmod.farm';
+                        const altDomain = 'moviesmod.army';
                         postUrl = await searchMovies(title, seasonYear, type as any, altDomain, s);
                     }
                     if (postUrl) {
@@ -88,7 +87,7 @@ export async function GET(req: NextRequest) {
             if (!postUrl) {
                 // Fallback: If Hollywood fails, try Bollywood domain just in case (or vice versa)
                 console.log(`[CineXP Pipeline] Search failed on ${targetDomain}. Trying alternative...`);
-                const altDomain = targetDomain === 'moviesmod.farm' ? 'moviesleech.link' : 'moviesmod.farm';
+                const altDomain = targetDomain === 'moviesmod.army' ? 'moviesleech.bar' : 'moviesmod.army';
                 postUrl = await searchMovies(title, year, type as any, altDomain, season);
             }
             if (postUrl) {
