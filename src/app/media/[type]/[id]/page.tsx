@@ -1,30 +1,37 @@
-import { getDetails, getImageUrl, getBackdropUrl, getSimilar } from "@/lib/tmdb";
+import Image from 'next/image';
+import {
+  getDetails,
+  getImageUrl,
+  getBackdropUrl,
+  getSimilar,
+} from "@/lib/tmdb";
 import { getAdSettings } from "@/lib/settings";
 
 import type { Metadata, ResolvingMetadata } from "next";
 import MediaInteractive from "@/components/MediaInteractive";
 import MediaCard from "@/components/MediaCard";
 import HistoryTracker from "@/components/HistoryTracker";
-import AdSlot from "@/components/ads/AdSlot";
+import DisplayAd from "@/components/ads/DisplayAd";
 import Link from "next/link";
-import { VscArrowLeft } from "react-icons/vsc";
+import { VscArrowLeft, VscPlay, VscStarFull } from "react-icons/vsc";
+import WatchlistButton from "@/components/WatchlistButton";
 import { Suspense } from "react";
-
 
 export const dynamicParams = true;
 export const maxDuration = 60;
 export const revalidate = 604800; // 7 days — safety net for pages added post-deploy
 
 export async function generateStaticParams() {
+  if (!process.env.DATABASE_URL) return [];
   try {
-    const { prisma } = await import('@/lib/admin');
+    const { prisma } = await import("@/lib/admin");
     // Prebuild ALL enabled SEOPages — reads from DB (0 TMDB calls)
     const pages = await prisma.sEOPage.findMany({
       where: { enabled: true },
-      orderBy: { addedAt: 'desc' },
+      orderBy: { addedAt: "desc" },
     });
-    return pages.map(page => ({
-      type: page.mediaType as 'movie' | 'tv',
+    return pages.map((page) => ({
+      type: page.mediaType as "movie" | "tv",
       id: page.slug,
     }));
   } catch (err) {
@@ -35,7 +42,7 @@ export async function generateStaticParams() {
 
 export async function generateMetadata(
   { params }: { params: Promise<{ type: "movie" | "tv"; id: string }> },
-  parent: ResolvingMetadata
+  parent: ResolvingMetadata,
 ): Promise<Metadata> {
   const { type, id: rawId } = await params;
   const id = rawId.split("-")[0];
@@ -43,18 +50,23 @@ export async function generateMetadata(
   if (!details) {
     return {
       title: "CineXP — Stream Free Movies & TV",
-      description: "Watch the latest movies and TV shows online free in HD on CineXP.",
+      description:
+        "Watch the latest movies and TV shows online free in HD on CineXP.",
     };
   }
 
-  const baseTitle = (details as any).title || (details as any).name;
-  const year = ((details as any).release_date || (details as any).first_air_date || "").split("-")[0];
+  const baseTitle = details.title || details.name || 'Untitled';
+  const year = (
+    details.release_date ||
+    details.first_air_date ||
+    ""
+  ).split("-")[0];
   const typeText = type === "movie" ? "Movie" : "TV Show";
-  
+
   // SEO Optimized Titles and Descriptions for streaming sites
-  const title = `Watch ${baseTitle} ${year ? `(${year}) ` : ''}Online Free HD`;
+  const title = `Watch ${baseTitle} ${year ? `(${year}) ` : ""}Online Free HD`;
   const overview = `Watch ${baseTitle} full ${typeText.toLowerCase()} online for free in HD. ${details.overview || "Stream the best movies and TV shows on CineXP."}`;
-  
+
   const posterUrl = getImageUrl(details.poster_path, "w500");
   const url = `https://www.cinexp.site/media/${type}/${rawId}`;
 
@@ -70,16 +82,16 @@ export async function generateMetadata(
       url,
       images: [
         {
-          url: 'https://www.cinexp.site/og-rect-v2.png',
+          url: "https://www.cinexp.site/og-rect-v2.png",
           width: 1200,
           height: 630,
-          alt: 'CineXP - Premium Streaming',
+          alt: "CineXP - Premium Streaming",
         },
         {
-          url: 'https://www.cinexp.site/og-square-v2.png',
+          url: "https://www.cinexp.site/og-square-v2.png",
           width: 800,
           height: 800,
-          alt: 'CineXP - Premium Streaming',
+          alt: "CineXP - Premium Streaming",
         },
       ],
     },
@@ -87,7 +99,7 @@ export async function generateMetadata(
       card: "summary_large_image",
       title,
       description: overview,
-      images: ['https://www.cinexp.site/og-rect-v2.png'],
+      images: ["https://www.cinexp.site/og-rect-v2.png"],
     },
   };
 }
@@ -103,35 +115,61 @@ export default async function MediaPage({
   const [details, similar, adSettings] = await Promise.all([
     getDetails(type, id),
     getSimilar(type, id),
-    getAdSettings()
+    getAdSettings(),
   ]);
 
   if (!details) {
     return (
-      <div className="page-wrapper container" style={{ paddingTop: "20vh", textAlign: "center" }}>
+      <div
+        className="page-wrapper container"
+        style={{ paddingTop: "20vh", textAlign: "center" }}
+      >
         <h1>Content Temporarily Unavailable</h1>
-        <p style={{ opacity: 0.7 }}>We&apos;re having trouble loading this title. Please try again in a moment.</p>
+        <p style={{ opacity: 0.7 }}>
+          We&apos;re having trouble loading this title. Please try again in a
+          moment.
+        </p>
         <Link href="/">Browse Available Titles</Link>
       </div>
     );
   }
 
-  const title = (details as any).title || (details as any).name;
-  const year = ((details as any).release_date || (details as any).first_air_date || "").split("-")[0];
+  const title = details.title || details.name || 'Untitled';
+  const year = (
+    details.release_date ||
+    details.first_air_date ||
+    ""
+  ).split("-")[0];
   const backdropUrl = getBackdropUrl(details.backdrop_path);
   const posterUrl = getImageUrl(details.poster_path, "w500");
-  const seasons = (details as any).seasons as any[] | undefined;
+  const seasons = 'seasons' in details ? details.seasons : undefined;
 
   // Comprehensive Indian content detection — covers all Indian languages, not just Hindi
-  const INDIAN_LANGUAGES = ['hi', 'ta', 'te', 'ml', 'kn', 'bn', 'mr', 'pa', 'gu', 'or', 'as', 'ur', 'bh', 'sa'];
-  const origLang = (details as any).original_language || '';
-  const originCountries: string[] = (details as any).origin_country || [];
-  const prodCountries: { iso_3166_1: string }[] = (details as any).production_countries || [];
+  const INDIAN_LANGUAGES = [
+    "hi",
+    "ta",
+    "te",
+    "ml",
+    "kn",
+    "bn",
+    "mr",
+    "pa",
+    "gu",
+    "or",
+    "as",
+    "ur",
+    "bh",
+    "sa",
+  ];
+  const origLang = details.original_language || "";
+  const originCountries: string[] = details.origin_country || [];
+  const prodCountries: { iso_3166_1: string }[] =
+    details.production_countries || [];
   const isIndian =
-    originCountries.includes('IN') ||
+    originCountries.includes("IN") ||
     INDIAN_LANGUAGES.includes(origLang) ||
-    prodCountries.some((c: any) => c.iso_3166_1 === 'IN');
-  const industry = isIndian ? 'bollywood' : 'hollywood';
+    prodCountries.some((c) => c.iso_3166_1 === "IN");
+  const industry = isIndian ? "bollywood" : "hollywood";
 
   const historyItem = {
     id: String(id),
@@ -141,12 +179,13 @@ export default async function MediaPage({
     backdrop_path: details.backdrop_path,
   };
 
-  const jsonLd: Record<string, any> = {
+  const jsonLd: Record<string, unknown> = {
     "@context": "https://schema.org",
     "@type": type === "movie" ? "Movie" : "TVSeries",
     name: title,
     image: posterUrl,
-    description: details.overview || `Watch ${title} online for free in HD on CineXP.`,
+    description:
+      details.overview || `Watch ${title} online for free in HD on CineXP.`,
     dateCreated: year,
     url: `https://www.cinexp.site/media/${type}/${rawId}`,
   };
@@ -163,7 +202,7 @@ export default async function MediaPage({
 
   // Enrich with genre list
   if (details.genres && details.genres.length > 0) {
-    jsonLd.genre = details.genres.map((g: any) => g.name);
+    jsonLd.genre = details.genres.map((g) => g.name);
   }
 
   const breadcrumbJsonLd = {
@@ -192,176 +231,164 @@ export default async function MediaPage({
   };
 
   return (
-    <div style={{ minHeight: "100vh" }}>
+    <div className="cx-detail">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
-      />
-      <HistoryTracker item={historyItem} />
-      
-      {/* Cinematic Backdrop */}
-      {backdropUrl && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            backgroundImage: `url(${backdropUrl})`,
-            backgroundSize: "cover",
-            backgroundPosition: "center top",
-            zIndex: 0,
-            opacity: 0.12,
-          }}
-        />
-      )}
-      <div
-        style={{
-          position: "fixed",
-          inset: 0,
-          background: "linear-gradient(to bottom, rgba(4,1,10,0.5) 0%, #04010a 65%)",
-          zIndex: 0,
-          pointerEvents: "none",
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(jsonLd).replace(/</g, "\\u003c"),
         }}
       />
-
-      <div className="page-wrapper container" style={{ position: "relative", zIndex: 1, paddingBottom: "5rem" }}>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(breadcrumbJsonLd).replace(/</g, "\\u003c"),
+        }}
+      />
+      <HistoryTracker item={historyItem} />
+      {backdropUrl && (
+        <div
+          className="cx-detail-backdrop"
+          style={{ backgroundImage: `url(${backdropUrl})` }}
+        />
+      )}
+      <div className="container page-wrapper cx-detail-content">
         <Link
-          href="/"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.5rem",
-            marginBottom: "2.5rem",
-            opacity: 0.6,
-            fontSize: "0.95rem",
-          }}
+          href={type === "movie" ? "/movies" : "/tv"}
+          className="cx-text-link"
         >
-          <VscArrowLeft size={18} /> Back to Browse
+          <VscArrowLeft /> Back to {type === "movie" ? "movies" : "series"}
         </Link>
-
-        {/* Media Header */}
-        <div style={{ display: "flex", gap: "2.5rem", marginBottom: "3.5rem", flexWrap: "wrap", alignItems: "flex-start" }}>
-          {/* Poster */}
+        <div className="cx-detail-header">
           {posterUrl && (
-            <div
-              style={{
-                width: "clamp(160px, 18vw, 250px)",
-                flexShrink: 0,
-                borderRadius: "14px",
-                overflow: "hidden",
-                boxShadow: "0 12px 50px rgba(157,0,255,0.4)",
-                border: "1px solid rgba(157,0,255,0.25)",
-              }}
-            >
-              <img 
-                src={posterUrl} 
-                alt={title} 
-                width={250} 
-                height={375} 
-                fetchPriority="high"
-                style={{ width: "100%", height: "auto", display: "block" }} 
-              />
-            </div>
+            <Image
+              className="cx-detail-poster"
+              sizes="(max-width: 600px) 135px, 250px"
+              src={posterUrl}
+              alt={`${title} poster`}
+              width={250}
+              height={375}
+              fetchPriority="high"
+            />
           )}
-
-          {/* Info */}
-          <div style={{ flex: 1, minWidth: "260px" }}>
-            <h1 style={{ fontSize: "clamp(1.8rem, 4vw, 3rem)", fontWeight: 700, marginBottom: "0.75rem", lineHeight: 1.15 }}>
-              {title}
-            </h1>
-
-            <div style={{ display: "flex", gap: "0.6rem", marginBottom: "1.5rem", flexWrap: "wrap", alignItems: "center" }}>
-              {year && (
-                <span style={{ padding: "0.2rem 0.7rem", border: "1px solid var(--primary)", borderRadius: "6px", fontSize: "0.85rem", color: "var(--accent)" }}>
-                  {year}
-                </span>
-              )}
+          <div className="cx-detail-info">
+            <p className="cx-eyebrow">Your next great story</p>
+            <h1>{title}</h1>
+            <div className="cx-meta">
               {details.vote_average > 0 && (
-                <span style={{ fontSize: "0.95rem" }}>⭐ {details.vote_average.toFixed(1)}</span>
-              )}
-              {(details as any).runtime > 0 && (
-                <span style={{ opacity: 0.65, fontSize: "0.9rem" }}>{(details as any).runtime} min</span>
-              )}
-              {(details as any).number_of_seasons && (
-                <span style={{ opacity: 0.65, fontSize: "0.9rem" }}>
-                  {(details as any).number_of_seasons} Season{(details as any).number_of_seasons > 1 ? "s" : ""}
+                <span className="cx-rating">
+                  <VscStarFull aria-hidden="true" />
+                  {details.vote_average.toFixed(1)}
+                  <span className="sr-only"> out of 10 on TMDB</span>
                 </span>
               )}
-              <span style={{ padding: "0.15rem 0.6rem", background: "var(--primary)", borderRadius: "4px", fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.08em" }}>
-                {type.toUpperCase()}
-              </span>
+              {year && <span>{year}</span>}
+              <span>{type === "tv" ? "Series" : "Movie"}</span>
+              {"runtime" in details && !!details.runtime && (
+                <span>{details.runtime} min</span>
+              )}
+              {"number_of_seasons" in details &&
+                !!details.number_of_seasons && (
+                  <span>
+                    {details.number_of_seasons}{" "}
+                    {details.number_of_seasons === 1 ? "season" : "seasons"}
+                  </span>
+                )}
             </div>
-
-            <p style={{ fontSize: "1.05rem", lineHeight: 1.8, marginBottom: "1.75rem", maxWidth: "700px", opacity: 0.85 }}>
-              {details.overview || `Watch ${title}${year ? ` (${year})` : ''} full ${type === 'movie' ? 'movie' : 'TV show'} online for free in HD. Stream the latest and best content on CineXP — no sign-up required.`}
+            <p className="cx-detail-overview">
+              {details.overview ||
+                "Explore this title and discover a new story."}
             </p>
-
-            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-              {details.genres?.map((g: any) => (
-                <span
-                  key={g.id}
-                  style={{
-                    padding: "0.35rem 0.9rem",
-                    background: "rgba(157,0,255,0.12)",
-                    border: "1px solid rgba(157,0,255,0.25)",
-                    borderRadius: "20px",
-                    fontSize: "0.85rem",
-                    color: "var(--accent)",
-                  }}
+            <nav className="cx-chips" aria-label="Genres for this title">
+              {details.genres?.map((genre) => (
+                <Link
+                  className="cx-chip"
+                  key={genre.id}
+                  href={`/genres/${genre.id}`}
                 >
-                  {g.name}
-                </span>
+                  {genre.name}
+                </Link>
               ))}
+            </nav>
+            <div className="cx-hero-actions">
+              <a href="#watch" className="cx-button">
+                <VscPlay aria-hidden="true" /> Start watching
+              </a>
+              <WatchlistButton item={historyItem} />
             </div>
           </div>
         </div>
-
-        {/* Interactive: Season picker + Player + Downloads */}
-        <Suspense fallback={
-          <div style={{
-            aspectRatio: '16/9', width: '100%', background: '#0a0510',
-            borderRadius: '16px', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', border: '1px solid rgba(157,0,255,0.15)'
-          }}>
-            <div style={{ textAlign: 'center', opacity: 0.7 }}>
-              <p style={{ fontSize: '1.1rem', fontWeight: 500 }}>Loading player stream...</p>
-              <p style={{ fontSize: '0.85rem', marginTop: '0.5rem', opacity: 0.6 }}>
-                {title} — Stream free in HD on CineXP
-              </p>
-            </div>
+        <div id="watch" className="cx-section-heading">
+          <div>
+            <p className="cx-eyebrow">Settle in</p>
+            <h2>Enjoy the story.</h2>
           </div>
-        }>
-          <MediaInteractive 
-            id={id} 
-            type={type} 
-            imdbId={(details as any).external_ids?.imdb_id} 
-            seasons={seasons} 
-            title={title} 
-            posterUrl={posterUrl} 
+        </div>
+        {/* Interactive: Season picker + Player + Downloads */}
+        <Suspense
+          fallback={
+            <div
+              style={{
+                aspectRatio: "16/9",
+                width: "100%",
+                background: "var(--surface)",
+                borderRadius: "16px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: "1px solid var(--line)",
+              }}
+            >
+              <div style={{ textAlign: "center", opacity: 0.7 }}>
+                <p style={{ fontSize: "1.1rem", fontWeight: 500 }}>
+                  Loading player stream...
+                </p>
+                <p
+                  style={{
+                    fontSize: "0.85rem",
+                    marginTop: "0.5rem",
+                    opacity: 0.6,
+                  }}
+                >
+                  {title} — Stream free in HD on CineXP
+                </p>
+              </div>
+            </div>
+          }
+        >
+          <MediaInteractive
+            id={id}
+            type={type}
+            imdbId={details.external_ids?.imdb_id}
+            seasons={seasons}
+            title={title}
+            posterUrl={posterUrl}
             year={year}
             industry={industry}
-            adPostersEnabled={adSettings.postersEnabled}
           />
         </Suspense>
 
         {/* Ad between player and recommendations */}
-        {adSettings.postersEnabled && (
-          <AdSlot />
-        )}
+        {adSettings.postersEnabled && <DisplayAd placement="watch-below-player" />}
 
         {/* Similar / Recommended Content */}
         {similar.length > 0 && (
-          <div style={{ marginTop: "3rem" }}>
-            <h2 style={{ fontSize: "1.75rem", fontWeight: 700, marginBottom: "1.5rem" }}>You Might Also Like</h2>
+          <section className="cx-section" style={{ marginTop: "3rem" }}>
+            <div className="cx-section-heading">
+              <div>
+                <p className="cx-eyebrow">Keep the feeling going</p>
+                <h2>Stay a little longer.</h2>
+              </div>
+            </div>
             <div className="grid">
               {similar.map((item, index) => (
-                <MediaCard key={`${item.media_type}-${item.id}`} item={item} stagger={index * 0.05} />
+                <MediaCard
+                  key={`${item.media_type}-${item.id}`}
+                  item={item}
+                  stagger={index * 0.05}
+                />
               ))}
             </div>
-          </div>
+          </section>
         )}
       </div>
     </div>

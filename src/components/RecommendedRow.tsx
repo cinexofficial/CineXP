@@ -1,123 +1,29 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { getUserSignals, encodeSeedsParam } from '@/lib/recommendations';
 import MediaCard from './MediaCard';
 import type { TMDBMediaItem } from '@/lib/tmdb';
 
-/**
- * "Recommended for You" — Netflix-style personalized row.
- * 
- * On mount, collects user signals from localStorage, fetches
- * personalized recommendations from the API, and renders a
- * horizontal-scrollable grid with smooth loading transitions.
- */
+const subscribe = (callback: () => void) => {
+  for (const event of ['storage', 'watchlistUpdated', 'historyUpdated']) window.addEventListener(event, callback);
+  return () => { for (const event of ['storage', 'watchlistUpdated', 'historyUpdated']) window.removeEventListener(event, callback); };
+};
+const snapshot = () => { const signals = getUserSignals(); return signals.hasInteraction ? encodeSeedsParam(signals.seeds) : ''; };
+
 export default function RecommendedRow() {
-  const [items, setItems] = useState<TMDBMediaItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [hasInteraction, setHasInteraction] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const fetchedRef = useRef(false);
-
+  const seeds = useSyncExternalStore(subscribe, snapshot, () => '');
+  const [result, setResult] = useState<{ seeds: string; items: TMDBMediaItem[] }>({ seeds: '', items: [] });
   useEffect(() => {
-    setMounted(true);
-
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
-
-    const signals = getUserSignals();
-    setHasInteraction(signals.hasInteraction);
-
-    if (!signals.hasInteraction) {
-      setLoading(false);
-      return;
-    }
-
-    const seedsParam = encodeSeedsParam(signals.seeds);
-    // Build exclusion list from all seed IDs
-    const excludeParam = signals.seeds.map(s => s.id).join(',');
-
-    fetch(`/api/tmdb/recommended?seeds=${seedsParam}&exclude=${excludeParam}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.results && data.results.length > 0) {
-          setItems(data.results);
-        }
-        setLoading(false);
-      })
-      .catch(() => {
-        setLoading(false);
-      });
-  }, []);
-
-  // Don't render anything server-side or if user has no interaction history
-  if (!mounted) return null;
-  if (!hasInteraction && !loading) return null;
-  if (!loading && items.length === 0) return null;
-
-  return (
-    <section style={{ marginBottom: '4rem' }}>
-      <h2
-        style={{
-          fontSize: '1.6rem',
-          fontWeight: 600,
-          marginBottom: '1.5rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-        }}
-      >
-        <span style={{ color: 'var(--primary)' }}>✦</span> Recommended for You
-      </h2>
-
-      {loading ? (
-        <div className="grid">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="recommended-skeleton">
-              <div className="skeleton" style={{ aspectRatio: '2/3', borderRadius: '12px' }} />
-              <div
-                className="skeleton skeleton-text"
-                style={{ marginTop: '0.75rem', width: '80%', height: '0.85rem' }}
-              />
-              <div
-                className="skeleton skeleton-text"
-                style={{ marginTop: '0.35rem', width: '40%', height: '0.7rem' }}
-              />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div
-          className="grid"
-          style={{
-            animation: 'recommendedFadeIn 0.5s ease-out both',
-          }}
-        >
-          {items.map((item, index) => (
-            <MediaCard
-              key={`rec-${item.media_type}-${item.id}`}
-              item={item}
-              stagger={index % 6 * 0.05}
-            />
-          ))}
-        </div>
-      )}
-
-      <style jsx>{`
-        @keyframes recommendedFadeIn {
-          from {
-            opacity: 0;
-            transform: translateY(12px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        .recommended-skeleton {
-          opacity: 0.6;
-        }
-      `}</style>
-    </section>
-  );
+    if (!seeds) return;
+    const controller = new AbortController();
+    fetch(`/api/tmdb/recommended?seeds=${seeds}`, { signal: controller.signal })
+      .then(response => { if (!response.ok) throw new Error(); return response.json(); })
+      .then(data => { if (!controller.signal.aborted) setResult({ seeds, items: data.results || [] }); })
+      .catch(() => { if (!controller.signal.aborted) setResult({ seeds, items: [] }); });
+    return () => controller.abort();
+  }, [seeds]);
+  if (!seeds || (result.seeds === seeds && !result.items.length)) return null;
+  const loading = result.seeds !== seeds;
+  return <section className="cx-section"><div className="cx-section-heading"><div><p className="cx-eyebrow">Inspired by your watchlist</p><h2>More of your kind of story.</h2></div></div><div className="grid" aria-busy={loading}>{loading ? Array.from({ length: 6 }, (_, index) => <div className="cx-skeleton" style={{ aspectRatio: '2/3' }} key={index} />) : result.items.map(item => <MediaCard key={`${item.media_type}-${item.id}`} item={item} />)}</div></section>;
 }

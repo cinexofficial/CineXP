@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/admin'
 import { revalidatePath } from 'next/cache'
 import { requireAdmin } from '@/lib/guard'
+import { AD_SETTING_KEYS, getAdSettings } from '@/lib/settings'
+import { z } from 'zod'
+import { AD_PLACEMENTS, placementSettingKey, type AdPlacement } from '@/lib/ad-policy'
 
 // Fetch all AppSettings
 export async function GET(request: Request) {
@@ -10,13 +13,13 @@ export async function GET(request: Request) {
 
   try {
     const settings = await prisma.appSettings.findMany()
-    const config = settings.reduce((acc: any, s: any) => {
+    const config = settings.reduce<Record<string, string>>((acc, s) => {
       acc[s.key] = s.value
       return acc
     }, {})
     
 
-    return NextResponse.json({ config })
+    return NextResponse.json({ config, ads: await getAdSettings(), services: { database: true, catalogConfigured: !!process.env.TMDB_API_KEY } }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     console.error('Settings GET error:', error)
     return NextResponse.json({ error: 'Failed to fetch settings' }, { status: 500 })
@@ -24,6 +27,15 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const origin = request.headers.get('origin')
+  if (origin) {
+    try {
+      const supplied = new URL(origin)
+      const target = new URL(request.url)
+      if (supplied.origin !== origin || supplied.protocol !== target.protocol || supplied.host !== (request.headers.get('host') || target.host))
+        return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 })
+    } catch { return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 }) }
+  }
   const authError = await requireAdmin(request)
   if (authError) return authError
 
@@ -32,6 +44,21 @@ export async function POST(request: Request) {
     const { action, value } = body
 
     switch (action) {
+      case 'update_ads': {
+        const ids = Object.keys(AD_PLACEMENTS) as [AdPlacement, ...AdPlacement[]]
+        const parsed = z.object({ displayEnabled: z.boolean(), downloadEnabled: z.boolean(), placements: z.record(z.enum(ids), z.boolean()).optional() }).strict().safeParse(value)
+        if (!parsed.success) return NextResponse.json({ error: 'Ad settings require boolean values' }, { status: 400 })
+        await prisma.$transaction([
+          prisma.appSettings.upsert({ where: { key: AD_SETTING_KEYS.display }, create: { key: AD_SETTING_KEYS.display, value: String(parsed.data.displayEnabled) }, update: { value: String(parsed.data.displayEnabled) } }),
+          prisma.appSettings.upsert({ where: { key: AD_SETTING_KEYS.download }, create: { key: AD_SETTING_KEYS.download, value: String(parsed.data.downloadEnabled) }, update: { value: String(parsed.data.downloadEnabled) } }),
+          ...Object.entries(parsed.data.placements || {}).map(([id, enabled]) => {
+            const key = placementSettingKey(id as AdPlacement)
+            return prisma.appSettings.upsert({ where: { key }, create: { key, value: String(enabled) }, update: { value: String(enabled) } })
+          }),
+        ])
+        revalidatePath('/', 'layout')
+        return NextResponse.json({ success: true, message: 'Display ad settings saved.', ads: await getAdSettings() }, { headers: { 'Cache-Control': 'no-store' } })
+      }
 
 
       case 'bust_browser_cache': {
@@ -47,7 +74,7 @@ export async function POST(request: Request) {
         })
         return NextResponse.json({
           success: true,
-          message: `Browser cache bust v${nextVersion} deployed. All users' local data will be cleared on next visit.`,
+          message: `Application cache refresh v${nextVersion} scheduled. Saved titles and viewing progress are preserved.`,
         })
       }
 

@@ -1,143 +1,70 @@
-'use client';
+"use client";
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { VscPlay } from 'react-icons/vsc';
+import { trackExperience } from '@/lib/experience-analytics';
+import type { AdPlacement } from '@/lib/ad-policy';
+import { buildAdDocument } from '@/lib/ad-document';
 
-interface AdBannerProps {
-  adKey: string;
-  width: number;
-  height: number;
-  format?: string;
-}
-
-/**
- * Renders an Adsterra banner ad directly in the page DOM.
- *
- * Uses a global sequential queue to prevent the `atOptions` collision
- * that occurs when multiple Adsterra ads exist on the same page.
- * Each ad's atOptions is set and invoke.js loaded one at a time,
- * with the next ad only starting after the previous script finishes.
- *
- * Unlike the previous iframe-sandbox approach, this preserves:
- *  - document.referrer → Adsterra can verify traffic source → higher CPM
- *  - Parent page cookies → retargeting advertisers can bid → higher CPM
- *  - Viewability / Intersection Observer → ads register as viewable → higher CPM
- *
- * Ad-blocker resilient: if the ad fails to render after 8s, the
- * container collapses to show no empty space.
- */
-
-// ── Global Sequential Ad Queue ─────────────────────────────────
-// Module-level state: persists across component mounts within the
-// same JS session. Ensures only one atOptions + invoke.js pair
-// executes at a time, preventing the global variable collision.
-
-interface QueuedAd {
-  key: string;
-  format: string;
-  width: number;
-  height: number;
-  container: HTMLDivElement;
-}
-
-const pendingAds: QueuedAd[] = [];
-let processing = false;
-
-function processNext() {
-  if (processing || pendingAds.length === 0) return;
-  processing = true;
-
-  const ad = pendingAds.shift()!;
-
-  // If the component unmounted before we got to it, skip
-  if (!ad.container.isConnected) {
-    processing = false;
-    processNext();
-    return;
-  }
-
-  // Set atOptions on window — invoke.js reads this synchronously on execution
-  (window as any).atOptions = {
-    key: ad.key,
-    format: ad.format,
-    height: ad.height,
-    width: ad.width,
-    params: {},
-  };
-
-  const script = document.createElement('script');
-  script.src = `//www.highperformanceformat.com/${ad.key}/invoke.js`;
-
-  const onDone = () => {
-    processing = false;
-    // Brief delay ensures invoke.js has fully consumed atOptions
-    // before we overwrite it for the next ad
-    setTimeout(processNext, 150);
-  };
-
-  script.onload = onDone;
-  script.onerror = onDone;
-
-  ad.container.appendChild(script);
-}
-
-function enqueueAd(ad: QueuedAd) {
-  pendingAds.push(ad);
-  processNext();
-}
-
-// ── Component ──────────────────────────────────────────────────
-
-export default function AdBanner({ adKey, width, height, format = 'iframe' }: AdBannerProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const injectedRef = useRef(false);
-  const [adFailed, setAdFailed] = useState(false);
-
+export default function AdBanner({ adKey, width, height, placement, networkEnabled = false }: {
+  adKey: string; width: number; height: number; placement: AdPlacement; networkEnabled?: boolean;
+}) {
+  const wrapper = useRef<HTMLDivElement>(null);
+  const frame = useRef<HTMLIFrameElement>(null);
+  const channel = useId();
+  const [near, setNear] = useState(false);
+  const [fits, setFits] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'loading' | 'rendered' | 'failed'>('idle');
   useEffect(() => {
-    if (!containerRef.current || injectedRef.current) return;
-    injectedRef.current = true;
-
-    enqueueAd({
-      key: adKey,
-      format,
-      width,
-      height,
-      container: containerRef.current,
+    const element = wrapper.current;
+    if (!element || !networkEnabled) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) { setNear(true); observer.disconnect(); }
+    }, { rootMargin: '250px' });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [networkEnabled]);
+  useEffect(() => {
+    const element = wrapper.current;
+    if (!element || !networkEnabled) return;
+    const observer = new ResizeObserver(entries => {
+      setFits((entries[0]?.contentRect.width || 0) >= width);
     });
-
-    // Ad-blocker detection: after invoke.js runs, it injects ad elements
-    // into the container. If only the script tag (1 child) or nothing
-    // exists after 8s, the ad was likely blocked.
-    const checkTimer = setTimeout(() => {
-      if (!containerRef.current) return;
-      if (containerRef.current.childElementCount <= 1) {
-        setAdFailed(true);
-      }
-    }, 8000);
-
-    return () => {
-      clearTimeout(checkTimer);
-      injectedRef.current = false;
-      // Remove from pending queue if not yet processed
-      const idx = pendingAds.findIndex(
-        (a) => a.container === containerRef.current
-      );
-      if (idx !== -1) pendingAds.splice(idx, 1);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [networkEnabled, width]);
+  const validKey = /^[a-f0-9]{32}$/i.test(adKey);
+  const active = near && fits && networkEnabled && validKey;
+  useEffect(() => {
+    if (!active) return;
+    let complete = false;
+    trackExperience('ad_request', { placement });
+    const finish = (rendered: boolean) => {
+      if (complete) return;
+      complete = true;
+      clearTimeout(timer);
+      setStatus(rendered ? 'rendered' : 'failed');
+      if (!rendered) trackExperience('ad_load_failed', { placement });
     };
-  }, [adKey, width, height, format]);
-
-  if (adFailed) return null;
-
-  return (
-    <div
-      ref={containerRef}
-      style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        overflow: 'hidden',
-        width: '100%',
-        minHeight: height,
-      }}
-    />
-  );
+    const timer = setTimeout(() => finish(false), 8000);
+    const receive = (event: MessageEvent) => {
+      if (event.source !== frame.current?.contentWindow || event.origin !== 'null'
+        || event.data?.channel !== channel) return;
+      if (event.data.state === 'rendered') finish(true);
+      if (event.data.state === 'failed') finish(false);
+    };
+    window.addEventListener('message', receive);
+    frame.current?.contentWindow?.postMessage({ channel, action: 'start' }, '*');
+    return () => { complete = true; clearTimeout(timer); window.removeEventListener('message', receive); };
+  }, [active, channel, placement]);
+  const source = buildAdDocument(validKey ? adKey : '', width, height, channel,
+    process.env.NODE_ENV === 'development' ? process.env.NEXT_PUBLIC_AD_TEST_ORIGIN : undefined);
+  return <div ref={wrapper} className="cx-ad-canvas" data-ad-state={active && status === 'idle' ? 'loading' : status}>
+    <div className="cx-ad-fallback"><VscPlay aria-hidden="true" /><span>CineXP · A world of stories.</span></div>
+    {active && status !== 'failed' && <iframe key={`${adKey}-${width}-${height}`} ref={frame} title="Advertisement"
+      width={width} height={height} srcDoc={source} sandbox="allow-scripts"
+      referrerPolicy="strict-origin-when-cross-origin" loading="lazy"
+      onLoad={() => frame.current?.contentWindow?.postMessage({ channel, action: 'start' }, '*')}
+      style={{ position: 'absolute', inset: 0, border: 0, maxWidth: '100%', opacity: status === 'rendered' ? 1 : 0 }} />}
+  </div>;
 }

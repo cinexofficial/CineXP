@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useRef, useState, useId } from 'react';
+import React, { useEffect, useRef, useState, useId, useSyncExternalStore } from 'react';
 
 export interface GlassSurfaceProps {
   children?: React.ReactNode;
@@ -51,7 +51,6 @@ const GlassSurface: React.FC<GlassSurfaceProps> = ({
   const redGradId = `red-grad-${uniqueId}`;
   const blueGradId = `blue-grad-${uniqueId}`;
 
-  const [svgSupported, setSvgSupported] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const feImageRef = useRef<SVGFEImageElement>(null);
@@ -110,10 +109,7 @@ const GlassSurface: React.FC<GlassSurfaceProps> = ({
     return div.style.backdropFilter !== '';
   };
 
-  // Check SVG filter support (client-only)
-  useEffect(() => {
-    setSvgSupported(supportsSVGFilters());
-  }, []);
+  const svgSupported = useSyncExternalStore(() => () => {}, () => supportsSVGFilters(), () => false);
 
   // Update displacement map when props change
   useEffect(() => {

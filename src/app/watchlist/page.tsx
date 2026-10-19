@@ -1,76 +1,86 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { VscBookmark, VscArrowLeft } from 'react-icons/vsc';
-import { getWatchlist } from '@/lib/watchlist';
-import MediaCard from '@/components/MediaCard';
-import type { HistoryItem } from '@/lib/history';
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { VscArrowRight, VscBookmark } from "react-icons/vsc";
+import { getWatchlist } from "@/lib/watchlist";
+import type { HistoryItem } from "@/lib/history";
+import type { TMDBMediaItem } from "@/lib/tmdb";
+import MediaCard from "@/components/MediaCard";
+import { PageHeading } from "@/components/PageHeading";
 
 export default function WatchlistPage() {
-  const [list, setList] = useState<HistoryItem[]>([]);
-  const [mounted, setMounted] = useState(false);
-
+  const [list, setList] = useState<HistoryItem[] | null>(null);
   useEffect(() => {
-    setList(getWatchlist());
-    setMounted(true);
+    const sync = () => setList(getWatchlist());
+    sync();
+    window.addEventListener("watchlistUpdated", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("watchlistUpdated", sync);
+      window.removeEventListener("storage", sync);
+    };
   }, []);
-
-  if (!mounted) return null;
-
   return (
-    <div className="page-wrapper container" style={{ minHeight: '100vh', paddingBottom: '100px' }}>
-      {/* Header */}
-      <div style={{ textAlign: "center", padding: "4rem 0 3rem" }}>
-        <h1
-          style={{
-            fontSize: "clamp(2rem, 5vw, 4rem)",
-            fontWeight: 700,
-            marginBottom: "1rem",
-            background: "linear-gradient(135deg, #fff 30%, var(--accent))",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            lineHeight: 1.1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "1rem"
-          }}
-        >
-          <VscBookmark color="var(--primary)" /> My List
-        </h1>
-        <p style={{ fontSize: "1.15rem", maxWidth: 520, margin: "0 auto", opacity: 0.7, lineHeight: 1.7 }}>
-          Your personalized collection of saved movies and TV shows.
-        </p>
-      </div>
-
-      <section>
-        {list.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "4rem", opacity: 0.5 }}>
-            <p style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Your list is completely empty.</p>
-            <Link href="/" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>
-              Find something to watch
+    <div className="container page-wrapper">
+      <PageHeading
+        eyebrow="Saved for a good night"
+        title="Your kind of collection."
+        description="All those “I need to watch that” moments, in one place. Your list is saved on this device."
+      />
+      {list === null ? (
+        <div className="grid" aria-label="Loading your list">
+          {Array.from({ length: 6 }, (_, index) => (
+            <div
+              className="cx-skeleton"
+              style={{ aspectRatio: "2/3" }}
+              key={index}
+            />
+          ))}
+        </div>
+      ) : list.length ? (
+        <>
+          <div className="cx-catalog-bar">
+            <span>
+              {list.length} saved {list.length === 1 ? "title" : "titles"}
+            </span>
+            <Link href="/" className="cx-text-link">
+              Discover more <VscArrowRight />
             </Link>
           </div>
-        ) : (
           <div className="grid">
-            {list.map((item, index) => {
-              const mediaItem = {
-                ...item,
-                media_type: item.type,
-                name: item.title,
-                first_air_date: "", 
-              } as any;
-              
-              return (
-                <div key={`${item.type}-${item.id}`} style={{ position: 'relative' }}>
-                  <MediaCard item={mediaItem} stagger={index * 0.05} />
-                </div>
-              );
-            })}
+            {list.map((item) => (
+              <MediaCard
+                key={`${item.type}-${item.id}`}
+                item={
+                  {
+                    ...item,
+                    id: Number(item.id),
+                    media_type: item.type,
+                    name: item.title,
+                    first_air_date: "",
+                    overview: "",
+                    vote_average: 0,
+                    vote_count: 0,
+                  } as TMDBMediaItem
+                }
+              />
+            ))}
           </div>
-        )}
-      </section>
+        </>
+      ) : (
+        <div className="cx-empty">
+          <VscBookmark />
+          <h2>Good stories are worth saving.</h2>
+          <p>
+            Tap the + on any title to keep it here for later. Your next movie
+            night starts with a little curiosity.
+          </p>
+          <Link className="cx-button" href="/">
+            Find your next favorite <VscArrowRight />
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

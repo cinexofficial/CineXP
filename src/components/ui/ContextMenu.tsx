@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -33,11 +33,10 @@ interface ContextMenuProps {
 }
 
 const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, isOpen, onClose, item, showRemoveHistory }) => {
-  const [mounted, setMounted] = useState(false);
-  const inWatchlist = isInWatchlist(item.id);
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
+  const inWatchlist = isInWatchlist(item.id, item.type);
 
   useEffect(() => {
-    setMounted(true);
     
     // Also close on scroll to prevent floating menu issues
     const handleScroll = () => onClose();
@@ -55,7 +54,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, isOpen, onClose, item, 
     e.preventDefault();
     e.stopPropagation();
     if (inWatchlist) {
-      removeFromWatchlist(item.id);
+      removeFromWatchlist(item.id, item.type);
     } else {
       addToWatchlist({
         id: item.id,

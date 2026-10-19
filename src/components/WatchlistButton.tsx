@@ -1,61 +1,55 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { VscAdd, VscCheck } from 'react-icons/vsc';
-import { addToWatchlist, removeFromWatchlist, isInWatchlist } from '@/lib/watchlist';
+import { useEffect, useState } from "react";
+import { VscAdd, VscCheck } from "react-icons/vsc";
+import {
+  addToWatchlist,
+  removeFromWatchlist,
+  isInWatchlist,
+} from "@/lib/watchlist";
 
-interface WatchlistButtonProps {
+interface Props {
   item: {
     id: string | number;
-    type: 'movie' | 'tv';
+    type: "movie" | "tv";
     title: string;
     poster_path: string | null;
     backdrop_path: string | null;
   };
+  iconOnly?: boolean;
 }
 
-export default function WatchlistButton({ item }: WatchlistButtonProps) {
-  const [inList, setInList] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
+export default function WatchlistButton({ item, iconOnly = false }: Props) {
+  const [saved, setSaved] = useState(false);
+  const [ready, setReady] = useState(false);
   useEffect(() => {
-    setInList(isInWatchlist(item.id));
-    setMounted(true);
-  }, [item.id]);
-
-  const toggleList = () => {
-    if (inList) {
-      removeFromWatchlist(item.id);
-      setInList(false);
-    } else {
-      addToWatchlist(item);
-      setInList(true);
-    }
-  };
-
-  if (!mounted) return null; // Avoid hydration mismatch
+    const sync = () => {
+      setSaved(isInWatchlist(item.id, item.type));
+      setReady(true);
+    };
+    sync();
+    window.addEventListener("watchlistUpdated", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("watchlistUpdated", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, [item.id, item.type]);
 
   return (
     <button
-      onClick={toggleList}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '0.4rem',
-        padding: '0.5rem 1rem',
-        background: inList ? 'rgba(157, 0, 255, 0.2)' : 'rgba(255,255,255,0.08)',
-        border: `1px solid ${inList ? 'var(--primary)' : 'rgba(255,255,255,0.1)'}`,
-        borderRadius: '999px',
-        color: inList ? 'var(--accent)' : 'white',
-        cursor: 'pointer',
-        fontSize: '0.85rem',
-        transition: 'all 0.2s',
-        fontWeight: inList ? 600 : 400
+      type="button"
+      className={iconOnly ? "cx-card-action" : "cx-button cx-button--secondary"}
+      disabled={!ready}
+      aria-pressed={saved}
+      aria-label={`${saved && !iconOnly ? "In my list. " : ""}${saved ? "Remove" : "Save"} ${item.title} ${saved ? "from" : "to"} my list`}
+      onClick={() => {
+        if (saved) removeFromWatchlist(item.id, item.type);
+        else addToWatchlist(item);
       }}
     >
-      {inList ? <VscCheck size={16} /> : <VscAdd size={16} />} 
-      {inList ? 'In My List' : 'Add to List'}
+      {saved ? <VscCheck aria-hidden="true" /> : <VscAdd aria-hidden="true" />}
+      {!iconOnly && <span>{saved ? "In my list" : "My list"}</span>}
     </button>
   );
 }

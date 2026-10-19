@@ -1,64 +1,28 @@
-'use client'
+'use client';
 
-import { useEffect } from 'react'
+import { useEffect } from 'react';
+const LOCAL_VERSION_KEY = 'cinexp_cache_version';
 
-const LOCAL_VERSION_KEY = 'cinexp_cache_version'
-
-/**
- * All localStorage keys used across the app that should be 
- * wiped when the admin triggers a "Clear All Users' Browser Cache".
- */
-const CACHE_KEYS_TO_CLEAR = [
-  'cinexp_watch_history',
-  'cinexp_watchlist',
-  'cinexpHistory',
-  'vidLinkProgress',
-  'vidFastProgress',
-  'pwa-installed',
-  'pwa-prompt-dismissed',
-]
-
+/** Refresh application caches without deleting a viewer's saved titles or progress. */
 export default function CacheBuster() {
   useEffect(() => {
-    let cancelled = false
-
-    async function checkVersion() {
+    const controller = new AbortController();
+    async function refresh() {
       try {
-        const res = await fetch('/api/cache-version', { cache: 'no-store' })
-        if (!res.ok || cancelled) return
-        const { version } = await res.json()
-        const localVersion = localStorage.getItem(LOCAL_VERSION_KEY)
-
-        if (localVersion !== null && localVersion !== version) {
-          // Version mismatch — the admin triggered a cache bust
-          console.log(`[CacheBuster] Version changed ${localVersion} → ${version}. Clearing browser cache…`)
-          
-          for (const key of CACHE_KEYS_TO_CLEAR) {
-            localStorage.removeItem(key)
-          }
-
-          // Also clear any StreamPlayer cached data (dynamic keys like "stream_*")
-          const allKeys = Object.keys(localStorage)
-          for (const key of allKeys) {
-            if (key.startsWith('stream_')) {
-              localStorage.removeItem(key)
-            }
-          }
+        const response = await fetch('/api/cache-version', { cache: 'no-store', signal: controller.signal });
+        if (!response.ok) return;
+        const { version } = await response.json();
+        if (typeof version !== 'string' || controller.signal.aborted) return;
+        const previous = localStorage.getItem(LOCAL_VERSION_KEY);
+        if (previous !== null && previous !== version && 'caches' in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.filter(key => key.startsWith('workbox-') || key.startsWith('cinexp-')).map(key => caches.delete(key)));
         }
-
-        // Always store the latest version
-        localStorage.setItem(LOCAL_VERSION_KEY, version)
-      } catch {
-        // Silently fail — don't break the app if the endpoint is down
-      }
+        if (!controller.signal.aborted) localStorage.setItem(LOCAL_VERSION_KEY, version);
+      } catch { /* A failed cache refresh must not interrupt viewing. */ }
     }
-
-    checkVersion()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  return null // Invisible component
+    void refresh();
+    return () => controller.abort();
+  }, []);
+  return null;
 }

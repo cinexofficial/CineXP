@@ -35,12 +35,12 @@ export async function getMoreReels(page: number): Promise<ReelVideo[]> {
   results.forEach((res) => {
     if (res && res.videos.length > 0) {
       // Prioritize Clips (max 2) and fallback to Trailer (max 1)
-      const clips = res.videos.filter((v: any) => v.type === 'Clip').slice(0, 2);
-      const trailers = res.videos.filter((v: any) => v.type === 'Trailer').slice(0, 1);
+      const clips = res.videos.filter((v) => v.type === 'Clip').slice(0, 2);
+      const trailers = res.videos.filter((v) => v.type === 'Trailer').slice(0, 1);
       
       const prioritized = clips.length > 0 ? clips : trailers;
       
-      prioritized.forEach((v: any) => {
+      prioritized.forEach((v) => {
         reelVideos.push({
           id: `${v.key}_${res.item.id}`,
           item: res.item,

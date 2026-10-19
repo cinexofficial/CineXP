@@ -67,7 +67,7 @@ export function getUserSignals(): UserSignals {
   try {
     const raw = localStorage.getItem(CINEXP_HISTORY_KEY);
     if (raw) {
-      const data = JSON.parse(raw) as Record<string, any>;
+      const data = JSON.parse(raw) as Record<string, unknown>;
       Object.keys(data).forEach(key => {
         // Keys are like "m12345" (movie) or "t67890" (tv)
         const type = key.startsWith('t') ? 'tv' : 'movie';

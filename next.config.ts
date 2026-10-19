@@ -12,6 +12,8 @@ const withPWA = withPWAInit({
 });
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ['127.0.0.1', 'localhost'],
+  devIndicators: false,
   turbopack: {},
   images: {
     unoptimized: true,

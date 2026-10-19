@@ -6,8 +6,8 @@
   "id": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#04010a",
-  "theme_color": "#04010a",
+  "background_color": "#101210",
+  "theme_color": "#101210",
   "orientation": "portrait",
   "prefer_related_applications": false,
   "icons": [

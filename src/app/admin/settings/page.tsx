@@ -4,11 +4,13 @@ import { useState, useEffect } from 'react'
 import { motion } from 'motion/react'
 import { VscRefresh, VscTrash, VscDatabase, VscCheck, VscWarning, VscSignOut } from 'react-icons/vsc'
 import { useToast } from '@/components/admin/Toast'
+import { AD_PLACEMENTS, type AdPlacement, type PlacementPolicies } from '@/lib/ad-policy'
 
 export default function SettingsPage() {
   const { showToast } = useToast()
-  const [dbStats, setDbStats] = useState<any>(null)
-  const [appConfig, setAppConfig] = useState<any>(null)
+  const [dbStats, setDbStats] = useState<{ mediaCount: number; downloadCount: number; sectionCount: number; itemCount: number } | null>(null)
+  const [appConfig, setAppConfig] = useState<{ displayPreference: boolean; downloadPreference: boolean; environmentDisabled: boolean; placementPreferences: Record<AdPlacement, boolean>; placements: PlacementPolicies } | null>(null)
+  const [services, setServices] = useState<{ database: boolean; catalogConfigured: boolean } | null>(null)
   const [loadingAction, setLoadingAction] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [confirmLogoutAll, setConfirmLogoutAll] = useState(false)
@@ -26,7 +28,7 @@ export default function SettingsPage() {
 
     fetch('/api/admin/settings', { method: 'GET' })
       .then(r => r.json())
-      .then(data => setAppConfig(data.config))
+      .then(data => { setAppConfig(data.ads); setServices(data.services) })
       .catch(() => {})
   }, [])
 
@@ -61,6 +63,19 @@ export default function SettingsPage() {
       setLoadingAction(null)
       setConfirmDelete(null)
     }
+  }
+
+  const saveAds = async () => {
+    if (!appConfig) return
+    setLoadingAction('update_ads')
+    try {
+      const response = await fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'update_ads', value: { displayEnabled: appConfig.displayPreference, downloadEnabled: appConfig.downloadPreference, placements: appConfig.placementPreferences } }) })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Unable to save settings')
+      setAppConfig(data.ads)
+      showToast(data.message, 'success')
+    } catch (error) { showToast(error instanceof Error ? error.message : 'Unable to save settings', 'error') }
+    finally { setLoadingAction(null) }
   }
 
   const handleLogout = async () => {
@@ -111,6 +126,25 @@ export default function SettingsPage() {
       </div>
 
 
+      <section className="admin-section-card">
+        <h2>Display advertising</h2>
+        <p style={{ color: 'var(--muted)', marginBottom: 20, lineHeight: 1.7 }}>Control the labeled placements between content sections. Popup formats and forced redirects are disabled.</p>
+        {appConfig ? <div style={{ display: 'grid', gap: 18 }}>
+          {appConfig.environmentDisabled && <p role="status">Display ads are disabled by the hosting environment. Update DISPLAY_ADS_ENABLED there to enable them.</p>}
+          <label style={{ display: 'flex', gap: 12, alignItems: 'center' }}><input type="checkbox" checked={appConfig.displayPreference} disabled={appConfig.environmentDisabled || loadingAction !== null} onChange={event => setAppConfig({ ...appConfig, displayPreference: event.target.checked })} /> Display placements on public pages</label>
+          <label style={{ display: 'flex', gap: 12, alignItems: 'center' }}><input type="checkbox" checked={appConfig.downloadPreference} disabled={loadingAction !== null} onChange={event => setAppConfig({ ...appConfig, downloadPreference: event.target.checked })} /> Include a placement below download files</label>
+          <fieldset style={{ border: '1px solid var(--admin-border)', borderRadius: 8, padding: 18, display: 'grid', gap: 14 }}>
+            <legend>Individual placements</legend>
+            {(Object.entries(AD_PLACEMENTS) as [AdPlacement, string][]).map(([id, label]) => <label key={id} style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input type="checkbox" checked={appConfig.placementPreferences[id]} disabled={loadingAction !== null} onChange={event => setAppConfig({ ...appConfig, placementPreferences: { ...appConfig.placementPreferences, [id]: event.target.checked } })} />
+              <span>{label}</span><small style={{ color: 'var(--muted)' }}>{appConfig.placements[id].networkEnabled ? 'Network enabled' : 'House promotion'}</small>
+            </label>)}
+          </fieldset>
+          <p style={{ color: 'var(--muted)', lineHeight: 1.7 }}>Unverified placements show a house promotion. After testing delivery and click behavior in the network’s test mode, add their identifiers to ADS_VERIFIED_PLACEMENTS in hosting settings. The hosting kill switch overrides every placement.</p>
+          <button className="admin-btn admin-btn-primary" disabled={loadingAction !== null} onClick={saveAds}>{loadingAction === 'update_ads' ? 'Saving…' : 'Save ad settings'}</button>
+        </div> : <p role="status">Loading ad settings…</p>}
+      </section>
+
       {/* Cache Management */}
       <motion.div
         className="admin-section-card"
@@ -151,7 +185,7 @@ export default function SettingsPage() {
             🌐 Browser Cache (All Users)
           </h3>
           <p style={{ fontSize: '0.82rem', opacity: 0.5, marginBottom: '1rem' }}>
-            Clears watch history, watchlist, playback progress &amp; all locally cached data for every user on their next visit.
+            Refreshes application caches on the next visit. Watchlists, viewing history and playback progress stay saved.
           </p>
           {confirmDelete === 'bust_browser_cache' ? (
             <button
@@ -166,7 +200,7 @@ export default function SettingsPage() {
               }}
             >
               <VscWarning size={14} />
-              {loadingAction === 'bust_browser_cache' ? 'Deploying...' : 'Confirm: Clear All Browsers'}
+              {loadingAction === 'bust_browser_cache' ? 'Deploying...' : 'Confirm: Refresh App Caches'}
             </button>
           ) : (
             <button
@@ -180,11 +214,11 @@ export default function SettingsPage() {
               }}
             >
               <VscTrash size={14} />
-              Clear All Users&apos; Browser Cache
+              Refresh App Caches
             </button>
           )}
           <p style={{ fontSize: '0.72rem', opacity: 0.35, marginTop: '0.6rem' }}>
-            This increments a global version counter. When any user&apos;s browser detects the new version, it will automatically wipe their locally stored data.
+            This refreshes CineXP application caches without removing viewers&apos; personal data.
           </p>
         </div>
       </motion.div>
@@ -221,11 +255,11 @@ export default function SettingsPage() {
         <div style={{ marginTop: '1.25rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <VscCheck style={{ color: 'var(--admin-success)' }} />
-            <span style={{ fontSize: '0.82rem', opacity: 0.7 }}>PostgreSQL Connected</span>
+            <span style={{ fontSize: '0.82rem', opacity: 0.7 }}>{services?.database ? 'PostgreSQL connected' : 'Database status unavailable'}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <VscCheck style={{ color: 'var(--admin-success)' }} />
-            <span style={{ fontSize: '0.82rem', opacity: 0.7 }}>TMDB API: ••••••••ebc</span>
+            <span style={{ fontSize: '0.82rem', opacity: 0.7 }}>{services?.catalogConfigured ? 'Catalog key configured' : 'Catalog key not configured'}</span>
           </div>
         </div>
       </motion.div>

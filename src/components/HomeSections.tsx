@@ -11,7 +11,7 @@ interface Section {
   title: string
   type: string
   visible: boolean
-  items: any[]
+  items: TMDBMediaItem[]
 }
 
 export default function HomeSections({ sections, trending }: { sections: Section[], trending: TMDBMediaItem[] }) {

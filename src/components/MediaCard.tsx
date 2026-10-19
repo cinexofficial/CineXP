@@ -1,96 +1,106 @@
 "use client";
 
-import React, { useState } from "react";
+import Image from 'next/image';
+import { useState } from "react";
 import Link from "next/link";
-
-import { getImageUrl, type TMDBMediaItem } from "@/lib/tmdb";
+import { VscPlay, VscStarFull } from "react-icons/vsc";
+import { GENRE_MAP, getImageUrl, type TMDBMediaItem } from "@/lib/tmdb";
 import { generateSlug } from "@/lib/utils";
 import ContextMenu from "./ui/ContextMenu";
 import useLongPress from "@/hooks/useLongPress";
+import WatchlistButton from "./WatchlistButton";
 
-interface MediaCardProps {
+interface Props {
   item: TMDBMediaItem;
   stagger?: number;
   showRemoveHistory?: boolean;
   priority?: boolean;
 }
 
-/**
- * MediaCard: A client-side card wrapper that handles the 
- * scroll-reveal and an interactive 3D tilt effect on hover.
- */
-const MediaCard: React.FC<MediaCardProps> = ({ item, stagger = 0, showRemoveHistory = false, priority = false }) => {
-  const mediaType = item.media_type === "tv" ? "tv" : "movie";
-  const title = (item as any).title || (item as any).name;
-  const year = ((item as any).release_date || (item as any).first_air_date || "").split("-")[0];
+export default function MediaCard({
+  item,
+  showRemoveHistory = false,
+  priority = false,
+}: Props) {
+  const type: "movie" | "tv" = item.media_type === "tv" ? "tv" : "movie";
+  const title = ("title" in item ? item.title : item.name) || "Untitled";
+  const year = (
+    ("release_date" in item ? item.release_date : item.first_air_date) || ""
+  ).slice(0, 4);
+  const genre = item.genres?.[0]?.name || GENRE_MAP[item.genre_ids?.[0] ?? 0];
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const longPressProps = useLongPress(point => setContextMenu({ x: point.clientX, y: point.clientY }));
 
-  const [contextMenu, setContextMenu] = useState<{ x: number, y: number } | null>(null);
-
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY });
+  const historyItem = {
+    id: item.id,
+    type,
+    title,
+    poster_path: item.poster_path || null,
+    backdrop_path: item.backdrop_path || null,
   };
-
-  const longPressProps = useLongPress((e) => {
-    const touch = e.touches ? e.touches[0] : e;
-    setContextMenu({ x: touch.clientX, y: touch.clientY });
-  });
+  const href = `/media/${type}/${generateSlug(item.id, title)}${item.preferredStream ? `?stream=${encodeURIComponent(item.preferredStream)}` : ""}`;
 
   return (
-    <>
-      <div 
-        className="card-wrapper"
-        onContextMenu={handleContextMenu}
-        {...longPressProps}
-        style={{ 
-          position: 'relative',
-          userSelect: 'none',
-          WebkitUserSelect: 'none',
-          WebkitTouchCallout: 'none'
-        }}
+    <article
+      className="cx-poster"
+      onContextMenu={(event) => {
+        event.preventDefault();
+        setContextMenu({ x: event.clientX, y: event.clientY });
+      }}
+      {...longPressProps}
+    >
+      <Link
+        href={href}
+        className="cx-poster-link"
       >
-        <Link
-          href={item.preferredStream ? `/media/${mediaType}/${generateSlug(item.id, title)}?stream=${item.preferredStream}` : `/media/${mediaType}/${generateSlug(item.id, title)}`}
-          key={`${item.media_type}-${item.id}`}
-          className="card"
-          style={{ display: "block", transition: "transform 0.2s ease-out" }}
-        >
-        <div className="card-image-wrapper" style={{ position: "relative" }}>
+        <div className="cx-poster-art">
           {item.poster_path ? (
-            <img
+            <Image
               src={getImageUrl(item.poster_path, "w342")}
-              alt={title}
+              alt=""
+              sizes="(max-width: 600px) 50vw, (max-width: 1150px) 25vw, 16vw"
+              width={342}
+              height={513}
               loading={priority ? "eager" : "lazy"}
               fetchPriority={priority ? "high" : "auto"}
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
             />
           ) : (
-            <div className="placeholder">No Image</div>
+            <div className="placeholder">{title}</div>
           )}
+          <span className="cx-poster-tag">
+            {type === "tv" ? "Series" : "Movie"}
+          </span>
+          {item.vote_average > 0 && (
+            <span className="cx-poster-rating">
+              <VscStarFull aria-hidden="true" />
+              {item.vote_average.toFixed(1)}
+              <span className="sr-only"> out of 10 on TMDB</span>
+            </span>
+          )}
+          <span className="cx-poster-play" aria-hidden="true">
+            <VscPlay size={24} />
+          </span>
         </div>
-        <div className="card-info">
+        <div className="cx-poster-info">
           <h3>{title}</h3>
-          <p>{year}</p>
+          <p>
+            {year && <span>{year}</span>}
+            <span>{genre || (type === "tv" ? "TV series" : "Movie")}</span>
+          </p>
         </div>
-        </Link>
-
-        <ContextMenu
-          x={contextMenu?.x || 0}
-          y={contextMenu?.y || 0}
-          isOpen={!!contextMenu}
-          onClose={() => setContextMenu(null)}
-          showRemoveHistory={showRemoveHistory}
-          item={{
-            id: item.id,
-            title: title,
-            type: mediaType,
-            poster_path: item.poster_path || null,
-            backdrop_path: item.backdrop_path || null,
-          }}
-        />
-      </div>
-    </>
+      </Link>
+      <WatchlistButton item={historyItem} iconOnly />
+      <ContextMenu
+        x={contextMenu?.x || 0}
+        y={contextMenu?.y || 0}
+        isOpen={!!contextMenu}
+        onClose={() => setContextMenu(null)}
+        showRemoveHistory={showRemoveHistory}
+        item={historyItem}
+      />
+    </article>
   );
-};
-
-export default MediaCard;
+}

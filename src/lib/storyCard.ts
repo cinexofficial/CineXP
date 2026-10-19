@@ -132,7 +132,7 @@ export async function generateStoryCard(title: string, posterUrl: string, type: 
         ctx.textBaseline = 'middle';
         
         if ('letterSpacing' in ctx) {
-            (ctx as any).letterSpacing = '14px';
+            (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = '14px';
         }
         ctx.fillText('N O W   S T R E A M I N G', width / 2, 1580);
 
@@ -140,7 +140,7 @@ export async function generateStoryCard(title: string, posterUrl: string, type: 
         ctx.fillStyle = '#ffffff';
         ctx.font = '500 52px system-ui, -apple-system, sans-serif'; 
         if ('letterSpacing' in ctx) {
-            (ctx as any).letterSpacing = '2px';
+            (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = '2px';
         }
         let displayTitle = title;
         if (ctx.measureText(displayTitle).width > 850) {
@@ -150,7 +150,7 @@ export async function generateStoryCard(title: string, posterUrl: string, type: 
 
         // --- 5. MINIMALIST LUXURY CINEXP LOGO ---
         if ('letterSpacing' in ctx) {
-            (ctx as any).letterSpacing = '10px';
+            (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = '10px';
         }
         ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
         ctx.font = '300 24px system-ui, -apple-system, sans-serif';
@@ -173,7 +173,7 @@ export async function generateStoryCard(title: string, posterUrl: string, type: 
 
         // Reset spacing
         if ('letterSpacing' in ctx) {
-            (ctx as any).letterSpacing = '0px';
+            (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = '0px';
         }
 
         canvas.toBlob((blob) => {

@@ -1,6 +1,9 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import type { TMDBSeason } from '@/lib/tmdb'
+import type { PublicDownloadLink } from '@/lib/media-types'
+
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { VscShare, VscChevronDown } from 'react-icons/vsc'
 import StreamPlayer, { StreamPlayerRef } from './ui/StreamPlayer'
@@ -10,18 +13,16 @@ import { generateStoryCard } from '@/lib/storyCard'
 import WatchlistButton from './WatchlistButton'
 import ShareStoryModal from './ShareStoryModal'
 import { getInitialSync, getStartTimeFor, saveInternalProgress } from '@/lib/progressManager'
-import AdSlot from './ads/AdSlot'
 
 interface MediaInteractiveProps {
   id: string
   imdbId?: string
   type: 'movie' | 'tv'
-  seasons?: any[]
+  seasons?: TMDBSeason[]
   title: string
   posterUrl: string
   year: string
   industry: 'bollywood' | 'hollywood'
-  adPostersEnabled?: boolean
 }
 
 const PROVIDERS = [
@@ -51,8 +52,7 @@ export default function MediaInteractive({
   title, 
   posterUrl, 
   year, 
-  industry,
-  adPostersEnabled = true
+  industry
 }: MediaInteractiveProps) {
   const [activeProvider, setActiveProvider] = useState('native')
   const [season, setSeason] = useState(seasons && seasons.length > 0 ? (seasons[0].season_number || 1) : 1)
@@ -65,36 +65,43 @@ export default function MediaInteractive({
   const [showExtraProviders, setShowExtraProviders] = useState(false)
   const playerRef = useRef<StreamPlayerRef>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
-  const [downloadLinks, setDownloadLinks] = useState<any[]>([])
-  const [episodeDownloads, setEpisodeDownloads] = useState<any[]>([])
+  const [downloadLinks, setDownloadLinks] = useState<PublicDownloadLink[]>([])
+  const [episodeDownloads, setEpisodeDownloads] = useState<PublicDownloadLink[]>([])
   const [downloadsLoading, setDownloadsLoading] = useState(true)
+  const sourceKey = type === 'tv' ? `${type}:${id}:${season}:${episode}` : `${type}:${id}`
+  const [resolvedSourceKey, setResolvedSourceKey] = useState('')
+  const sourcesPending = downloadsLoading || resolvedSourceKey !== sourceKey
   
   // Premium Native Bypasser State
   const [fastDownloadLinks, setFastDownloadLinks] = useState<{ label: string, proxyDownloadUrl: string, season?: number }[]>([])
   const [fastDownloadLoading, setFastDownloadLoading] = useState(false)
   const [fastDownloadError, setFastDownloadError] = useState<string | null>(null)
 
+  const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()
   const streamParam = searchParams?.get('stream')
 
   // Fetch download links
-  const fetchDownloads = useCallback(async () => {
+  const fetchDownloads = useCallback(async (signal?: AbortSignal) => {
     setDownloadsLoading(true)
     try {
-      let url = `/api/downloads?tmdbId=${id}&type=${type}`
-      if (type === 'tv') url += `&season=${season}&episode=${episode}`
-      const res = await fetch(url)
+      const params = new URLSearchParams({ tmdbId: id, type })
+      if (type === 'tv') { params.set('season', String(season)); params.set('episode', String(episode)) }
+      const res = await fetch(`/api/downloads?${params}`, { signal: AbortSignal.any([AbortSignal.timeout(40000), ...(signal ? [signal] : [])]) })
+      if (!res.ok) throw new Error('Sources unavailable')
       const data = await res.json()
-      setDownloadLinks(data.links || [])
-      setEpisodeDownloads(data.episodeLinks || [])
+      if (!signal?.aborted) {
+        setDownloadLinks(data.links || [])
+        setEpisodeDownloads(data.episodeLinks || [])
+        setResolvedSourceKey(sourceKey)
+      }
     } catch {
-      setDownloadLinks([])
-      setEpisodeDownloads([])
+      if (!signal?.aborted) { setDownloadLinks([]); setEpisodeDownloads([]); setResolvedSourceKey(sourceKey) }
     } finally {
-      setDownloadsLoading(false)
+      if (!signal?.aborted) setDownloadsLoading(false)
     }
-  }, [id, type, season, episode])
+  }, [id, type, season, episode, sourceKey])
 
   const handleGenerateFastLink = async () => {
     setFastDownloadLoading(true);
@@ -124,24 +131,30 @@ export default function MediaInteractive({
       } else {
          setFastDownloadError(data.error || "Failed to generate links.");
       }
-    } catch (e: any) {
-      setFastDownloadError(e.message || "Failed to contact scraper.");
+    } catch (e) {
+      setFastDownloadError(e instanceof Error ? e.message : "Failed to contact scraper.");
     } finally {
       setFastDownloadLoading(false);
     }
   }
 
-  useEffect(() => { fetchDownloads() }, [fetchDownloads])
+  useEffect(() => {
+    const controller = new AbortController()
+    void fetchDownloads(controller.signal)
+    return () => controller.abort()
+  }, [fetchDownloads])
 
   // Route download through interstitial page
-  const handleDownloadClick = async (e: React.MouseEvent, link: any) => {
+  const handleDownloadClick = async (e: React.MouseEvent, link: Partial<PublicDownloadLink> & { proxyDownloadUrl?: string }) => {
     e.preventDefault();
+    const target = link.url || link.proxyDownloadUrl;
+    if (!target) return;
     try {
       const res = await fetch('/api/download/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          url: link.url || link.proxyDownloadUrl,
+          url: target,
           title: title,
           quality: link.quality || link.label || 'Download',
           size: link.size || '',
@@ -151,12 +164,12 @@ export default function MediaInteractive({
       });
       const data = await res.json();
       if (data.token) {
-        window.open(`/download/${data.token}`, '_blank');
+        router.push(`/download/${data.token}`);
       } else {
-        window.open(link.url || link.proxyDownloadUrl, '_blank');
+        window.location.assign(target);
       }
     } catch {
-      window.open(link.url || link.proxyDownloadUrl, '_blank');
+      window.location.assign(target);
     }
   };
 
@@ -227,8 +240,8 @@ export default function MediaInteractive({
     if (activeProvider === 'vidfast') {
       const base = 'https://vidfast.pro'
       return type === 'movie'
-        ? `${base}/movie/${id}?autoPlay=true${timeParam}`
-        : `${base}/tv/${id}/${season}/${episode}?autoPlay=true&title=true&poster=true&theme=9B59B6&nextButton=true&autoNext=true${timeParam}`
+        ? `${base}/movie/${id}?autoPlay=false${timeParam}`
+        : `${base}/tv/${id}/${season}/${episode}?autoPlay=false&title=true&poster=true&theme=9B59B6&nextButton=true&autoNext=true${timeParam}`
     } else if (activeProvider === 'vidlink') {
       // Vidlink
       const base = 'https://vidlink.pro'
@@ -252,13 +265,13 @@ export default function MediaInteractive({
     } else if (activeProvider === 'vidcore') {
       // vidcore
       return type === 'movie'
-        ? `https://vidcore.net/movie/${id}?autoPlay=true`
-        : `https://vidcore.net/tv/${id}/${season}/${episode}?autoPlay=true`
+        ? `https://vidcore.net/movie/${id}?autoPlay=false`
+        : `https://vidcore.net/tv/${id}/${season}/${episode}?autoPlay=false`
     } else if (activeProvider === 'vidup') {
       // vidup
       return type === 'movie'
-        ? `https://vidup.to/movie/${id}?autoPlay=true`
-        : `https://vidup.to/tv/${id}/${season}/${episode}?autoPlay=true`
+        ? `https://vidup.to/movie/${id}?autoPlay=false`
+        : `https://vidup.to/tv/${id}/${season}/${episode}?autoPlay=false`
     } else if (activeProvider === 'videasy') {
       // videasy
       return type === 'movie'
@@ -353,30 +366,24 @@ export default function MediaInteractive({
     playerRef.current?.play();
   };
 
-  // Construct the Direct Video Object for Native Player
-  const mbxLinks = type === 'tv' 
-    ? episodeDownloads.filter((l: any) => l.isMoviebox) 
-    : downloadLinks.filter((l: any) => l.isMoviebox);
-
-  const directVideoObj = activeProvider === 'native' && mbxLinks.length > 0 ? {
-    sources: mbxLinks.map((l: any) => ({
-      src: l.url.replace('&cb=', `&cb=${Date.now()}`) + '&inline=1',
-      type: 'video/mp4',
-      size: parseInt(l.quality) || 0
-    })).sort((a: any, b: any) => b.size - a.size),
-    subtitleUrl: mbxLinks[0]?.subtitleUrl
-  } : undefined;
+  // Keep the source identity stable when menus, watchlists or sharing state changes.
+  const directVideoObj = useMemo(() => {
+    if (activeProvider !== 'native' || resolvedSourceKey !== sourceKey) return undefined;
+    const links = (type === 'tv' ? episodeDownloads : downloadLinks).filter(link => link.isMoviebox);
+    if (!links.length) return undefined;
+    return {
+      sources: links.map(link => {
+        const url = new URL(link.url, window.location.origin);
+        url.searchParams.set('inline', '1');
+        return { src: url.href, type: 'video/mp4', size: Number.parseInt(link.quality, 10) || 0 };
+      }).sort((a, b) => b.size - a.size),
+      subtitleUrl: links[0]?.subtitleUrl,
+    };
+  }, [activeProvider, type, episodeDownloads, downloadLinks, resolvedSourceKey, sourceKey]);
 
   return (
     <div className="media-interactive-wrapper" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', width: '100%' }}>
       
-      {/* Top Poster Ad */}
-      {adPostersEnabled && (
-        <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
-          <AdSlot />
-        </div>
-      )}
-
       {/* Control Bar (Servers, TV Selectors, Actions) */}
       <GlassSurface 
         width="100%" 
@@ -406,6 +413,7 @@ export default function MediaInteractive({
                 {PROVIDERS.map((p) => (
                   <button
                     key={p.id}
+                    aria-pressed={activeProvider === p.id}
                     onClick={() => {
                       changeProvider(p.id)
                       setShowExtraProviders(false)
@@ -416,12 +424,11 @@ export default function MediaInteractive({
                       borderRadius: '12px',
                       border: 'none',
                       background: 'transparent',
-                      color: activeProvider === p.id ? 'white' : 'rgba(255,255,255,0.5)',
+                      color: activeProvider === p.id ? '#18200f' : 'rgba(255,255,255,0.5)',
                       fontSize: '0.9rem',
                       fontWeight: 700,
                       cursor: 'pointer',
                       transition: 'color 0.3s ease',
-                      outline: 'none',
                       zIndex: 1,
                       flexShrink: 0,
                       whiteSpace: 'nowrap'
@@ -430,7 +437,7 @@ export default function MediaInteractive({
                     {activeProvider === p.id && (
                       <motion.div
                         layoutId="active-pill"
-                        style={{ position: 'absolute', inset: 0, background: p.color, borderRadius: '12px', zIndex: -1, boxShadow: `0 0 15px ${p.color}44` }}
+                        style={{ position: 'absolute', inset: 0, background: 'var(--primary)', borderRadius: '12px', zIndex: -1, boxShadow: 'none' }}
                         transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
                       />
                     )}
@@ -441,6 +448,8 @@ export default function MediaInteractive({
                 {/* More Dropdown */}
                 <div style={{ position: 'relative' }} ref={dropdownRef}>
                   <button
+                    aria-expanded={showExtraProviders}
+                    aria-label="More streaming sources"
                     onClick={() => setShowExtraProviders(!showExtraProviders)}
                     style={{
                       position: 'relative',
@@ -448,12 +457,11 @@ export default function MediaInteractive({
                       borderRadius: '12px',
                       border: 'none',
                       background: 'transparent',
-                      color: EXTRA_PROVIDERS.some(p => p.id === activeProvider) ? 'white' : 'rgba(255,255,255,0.5)',
+                      color: EXTRA_PROVIDERS.some(p => p.id === activeProvider) ? '#18200f' : 'rgba(255,255,255,0.5)',
                       fontSize: '0.8rem',
                       fontWeight: 600,
                       cursor: 'pointer',
                       transition: 'color 0.3s ease',
-                      outline: 'none',
                       zIndex: 1,
                       flexShrink: 0,
                       whiteSpace: 'nowrap',
@@ -468,10 +476,10 @@ export default function MediaInteractive({
                         style={{ 
                           position: 'absolute', 
                           inset: 0, 
-                          background: EXTRA_PROVIDERS.find(p => p.id === activeProvider)?.color || '#ff4b2b', 
+                          background: 'var(--primary)',
                           borderRadius: '12px', 
                           zIndex: -1, 
-                          boxShadow: `0 0 15px #ff4b2b44` 
+                          boxShadow: 'none'
                         }}
                         transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
                       />
@@ -492,7 +500,7 @@ export default function MediaInteractive({
                           top: 'calc(100% + 8px)',
                           right: 0,
                           minWidth: '140px',
-                          background: 'rgba(20, 10, 30, 0.95)',
+                          background: 'var(--surface)',
                           backdropFilter: 'blur(10px)',
                           borderRadius: '14px',
                           padding: '6px',
@@ -506,6 +514,7 @@ export default function MediaInteractive({
                         {EXTRA_PROVIDERS.map((p) => (
                           <button
                             key={p.id}
+                            aria-pressed={activeProvider === p.id}
                             onClick={() => {
                               changeProvider(p.id)
                               setShowExtraProviders(false)
@@ -514,8 +523,8 @@ export default function MediaInteractive({
                               padding: '0.6rem 0.8rem',
                               borderRadius: '10px',
                               border: 'none',
-                              background: activeProvider === p.id ? p.color : 'transparent',
-                              color: 'white',
+                              background: activeProvider === p.id ? 'var(--primary)' : 'transparent',
+                              color: activeProvider === p.id ? '#18200f' : 'white',
                               fontSize: '0.85rem',
                               fontWeight: 700,
                               textAlign: 'left',
@@ -541,6 +550,7 @@ export default function MediaInteractive({
               <>
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <select 
+                    aria-label="Season"
                     value={season} 
                     onChange={(e) => {
                       setSeason(Number(e.target.value))
@@ -555,18 +565,18 @@ export default function MediaInteractive({
                       fontSize: '0.85rem',
                       appearance: 'none',
                       cursor: 'pointer',
-                      outline: 'none',
                       backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2212%22%20height%3D%228%22%20viewBox%3D%220%200%2012%208%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M1%201.5L6%206.5L11%201.5%22%20stroke%3D%22rgba(255%2C255%2C255%2C0.5)%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E")',
                       backgroundRepeat: 'no-repeat',
                       backgroundPosition: 'right 0.8rem center',
                     }}
                   >
                     {seasons.map((s) => (
-                      s.season_number > 0 && <option key={s.id} value={s.season_number} style={{ background: '#1a0b2e' }}>Season {s.season_number}</option>
+                      s.season_number > 0 && <option key={s.id} value={s.season_number} style={{ background: 'var(--surface)' }}>Season {s.season_number}</option>
                     ))}
                   </select>
                   
                   <select
+                    aria-label="Episode"
                     value={episode}
                     onChange={(e) => setEpisode(Number(e.target.value))}
                     style={{ 
@@ -578,14 +588,13 @@ export default function MediaInteractive({
                       fontSize: '0.85rem',
                       appearance: 'none',
                       cursor: 'pointer',
-                      outline: 'none',
                       backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2212%22%20height%3D%228%22%20viewBox%3D%220%200%2012%208%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M1%201.5L6%206.5L11%201.5%22%20stroke%3D%22rgba(255%2C255%2C255%2C0.5)%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E")',
                       backgroundRepeat: 'no-repeat',
                       backgroundPosition: 'right 0.8rem center',
                     }}
                   >
                     {Array.from({ length: epCount }).map((_, i) => (
-                      <option key={i + 1} value={i + 1} style={{ background: '#1a0b2e' }}>Ep {i + 1}</option>
+                      <option key={i + 1} value={i + 1} style={{ background: 'var(--surface)' }}>Ep {i + 1}</option>
                     ))}
                   </select>
                 </div>
@@ -624,7 +633,7 @@ export default function MediaInteractive({
       </GlassSurface>
 
       {/* Player container */}
-      <div className="player-container" style={{ aspectRatio: '16/9', width: '100%', background: '#000', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.4), 0 0 30px rgba(157, 0, 255, 0.1)' }}>
+      <div className="player-container" style={{ aspectRatio: '16/9', width: '100%', background: '#000', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.25)' }}>
         <AnimatePresence mode="wait">
           <motion.div
             key={`${activeProvider}-${season}-${episode}`}
@@ -635,8 +644,8 @@ export default function MediaInteractive({
             style={{ width: '100%', height: '100%' }}
           >
             {activeProvider === 'native' && !directVideoObj ? (
-              <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0a0510' }}>
-                {downloadsLoading ? (
+              <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--surface)' }}>
+                {sourcesPending ? (
                   <>
                     <div style={{ width: 40, height: 40, border: '3px solid rgba(255,215,0,0.2)', borderTopColor: '#FFD700', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
                     <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
@@ -663,24 +672,24 @@ export default function MediaInteractive({
           <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '10px', background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Available</span>
         </div>
         
-        {downloadsLoading ? (
+        {sourcesPending ? (
           <GlassSurface width="100%" height="auto" borderRadius={16} borderWidth={0.05} brightness={20} opacity={0.6} blur={10}>
             <div style={{ padding: '2rem', textAlign: 'center', opacity: 0.5 }}>Loading available formats...</div>
           </GlassSurface>
         ) : (downloadLinks.length === 0 && episodeDownloads.length === 0) ? (
           <GlassSurface width="100%" height="auto" borderRadius={16} borderWidth={0.05} brightness={20} opacity={0.6} blur={10}>
             <div style={{ padding: '2rem', textAlign: 'center' }}>
-              <p style={{ opacity: 0.5, fontSize: '0.9rem', margin: 0 }}>Stream is optimized for high-speed playback.<br/>Offline downloads are not available for this title yet.</p>
+              <p style={{ opacity: 0.5, fontSize: '0.9rem', margin: 0 }}>No download files are available for this title yet.</p>
             </div>
           </GlassSurface>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
             {(() => {
               const allLinks = [...downloadLinks, ...episodeDownloads];
-              const movieboxLinks = allLinks.filter((l: any) => l.isMoviebox || l.id?.startsWith('moviebox-'));
-              const mirrorLinks = allLinks.filter((l: any) => !l.isMoviebox && !l.id?.startsWith('moviebox-'));
+              const movieboxLinks = allLinks.filter((l) => l.isMoviebox || l.id?.startsWith('moviebox-'));
+              const mirrorLinks = allLinks.filter((l) => !l.isMoviebox && !l.id?.startsWith('moviebox-'));
 
-              const renderLinkGroup = (links: any[], title: string, subtitle: string, accentColor: string) => {
+              const renderLinkGroup = (links: PublicDownloadLink[], title: string, subtitle: string, accentColor: string) => {
                 if (links.length === 0) return null;
                 const rgbAccent = accentColor === 'emerald' ? '16,185,129' : '245,158,11';
                 const hexAccent = accentColor === 'emerald' ? '#10b981' : '#f59e0b';
@@ -692,8 +701,7 @@ export default function MediaInteractive({
                       {subtitle && <p style={{ fontSize: '0.8rem', opacity: 0.6, margin: '0.2rem 0 0 0' }}>{subtitle}</p>}
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
-                      {links.map((link: any, i: number) => {
-                        const isEpisode = link.id?.includes('-tv-') || link.label?.includes('Episode') || titleToSearchMatch(link);
+                      {links.map((link, i: number) => {
                         
                         return (
                           <a
@@ -769,12 +777,11 @@ export default function MediaInteractive({
                 );
               };
 
-              function titleToSearchMatch(l: any) { return false; } // dummy inline since we just render label
 
               return (
                 <>
-                  {renderLinkGroup(movieboxLinks, "Direct download links- NO BULLSHIT..!", "", 'emerald')}
-                  {renderLinkGroup(mirrorLinks, "Direct Link -2 ~ Use VPN", "", 'amber')}
+                  {renderLinkGroup(movieboxLinks, "Download files", "", 'emerald')}
+                  {renderLinkGroup(mirrorLinks, "Alternative downloads", "", 'amber')}
                 </>
               );
             })()}
@@ -783,8 +790,8 @@ export default function MediaInteractive({
             {(type === 'movie' || type === 'tv') && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div style={{ paddingLeft: '0.75rem', borderLeft: `3px solid #9d00ff` }}>
-                <h4 style={{ fontSize: '1rem', fontWeight: 600, margin: 0, color: 'white', letterSpacing: '0.02em' }}>CineXP Premium Fast Node <span style={{ color: 'var(--primary)', fontSize: '0.85em' }}>(Recommended)</span></h4>
-                <p style={{ fontSize: '0.8rem', opacity: 0.6, margin: '0.2rem 0 0 0' }}>Bypasses external timers natively to give you a pristine download directly through your server pipeline.</p>
+                <h4 style={{ fontSize: '1rem', fontWeight: 600, margin: 0, color: 'white', letterSpacing: '0.02em' }}>More download options</h4>
+                <p style={{ fontSize: '0.8rem', opacity: 0.6, margin: '0.2rem 0 0 0' }}>Find additional files for this title. Availability varies by source.</p>
               </div>
               
               {fastDownloadLinks.length > 0 ? (
@@ -841,7 +848,7 @@ export default function MediaInteractive({
                       padding: '0.8rem 1.5rem', background: 'linear-gradient(135deg, #9d00ff, #5b00ff)', border: 'none', borderRadius: '12px', color: 'white', fontWeight: 600, cursor: fastDownloadLoading ? 'wait' : 'pointer', opacity: fastDownloadLoading ? 0.7 : 1, boxShadow: '0 4px 15px rgba(157,0,255,0.3)'
                     }}
                   >
-                    {fastDownloadLoading ? '🍿 Preparing your popcorn (wait 5-10s)...' : '🌩️ Generate Premium Direct Links'}
+                      {fastDownloadLoading ? 'Finding files…' : 'Find more downloads'}
                   </button>
                   {fastDownloadError && <div style={{ color: '#ff4b4b', marginTop: '0.5rem', fontSize: '0.85rem' }}>{fastDownloadError}</div>}
                 </div>
@@ -851,13 +858,6 @@ export default function MediaInteractive({
           </div>
         )}
       </div>
-
-      {/* Bottom Poster Ad */}
-      {adPostersEnabled && (
-        <div style={{ marginTop: '1.5rem', width: '100%' }}>
-          <AdSlot />
-        </div>
-      )}
 
       <ShareStoryModal 
         isOpen={showShareModal}

@@ -4,7 +4,7 @@
 const TMDB_BASE = 'https://api.tmdb.org/3'
 export const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p'
 
-function getApiKey() {
+export function getApiKey() {
   return process.env.TMDB_API_KEY || ''
 }
 
@@ -22,10 +22,25 @@ export function getClientImageUrl(path: string | null | undefined, size = 'w500'
 }
 
 export function getBackdropUrl(path: string | null | undefined): string {
-  return getImageUrl(path, 'original')
+  return getImageUrl(path, 'w1280')
 }
 
-export interface TMDBMovie {
+interface CatalogFields {
+  title?: string;
+  name?: string;
+  original_title?: string;
+  original_language?: string;
+  origin_country?: string[];
+  production_countries?: { iso_3166_1: string }[];
+  external_ids?: { imdb_id?: string };
+  popularity?: number;
+  release_date?: string;
+  first_air_date?: string;
+}
+export interface TMDBEpisode { id: number; episode_number: number; name: string; overview?: string; still_path?: string | null; }
+export interface TMDBVideo { key: string; name: string; site: string; type: string; official: boolean; }
+
+export interface TMDBMovie extends CatalogFields {
   id: number
   media_type?: string
   title: string
@@ -42,7 +57,7 @@ export interface TMDBMovie {
   preferredStream?: string | null
 }
 
-export interface TMDBTVShow {
+export interface TMDBTVShow extends CatalogFields {
   id: number
   media_type?: string
   name: string
@@ -96,19 +111,25 @@ interface TMDBSearchResult<T> {
 
 async function tmdbFetch<T>(endpoint: string, params: Record<string, string> = {}): Promise<T | null> {
   const apiKey = getApiKey()
-  if (!apiKey) {
+  // Allow a mock catalog or public proxy for development previews without secrets.
+  // Production always uses the configured server credential with TMDB directly.
+  const previewOrigin = process.env.NODE_ENV === 'development' ? process.env.TMDB_PREVIEW_ORIGIN : undefined
+  if (!apiKey && !previewOrigin) {
     console.error('TMDB_API_KEY is not set')
     return null
   }
 
-  const url = new URL(`${TMDB_BASE}${endpoint}`)
-  url.searchParams.set('api_key', apiKey)
+  const url = new URL(`${previewOrigin || TMDB_BASE}${endpoint}`)
+  if (!previewOrigin) url.searchParams.set('api_key', apiKey)
   Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value))
 
   try {
-    const res = await fetch(url.toString(), { next: { revalidate: 3600 } })
+    const res = await fetch(url.toString(), {
+      signal: AbortSignal.timeout(10000),
+      ...(previewOrigin ? { cache: 'no-store' as const } : { next: { revalidate: 3600 } }),
+    })
     if (!res.ok) {
-      console.error(`TMDB fetch failed: ${res.status} for ${url.toString()}`)
+      console.error(`TMDB fetch failed: ${res.status} for ${endpoint}`)
       return null
     }
     return await res.json()
@@ -121,7 +142,7 @@ async function tmdbFetch<T>(endpoint: string, params: Record<string, string> = {
 // Fetch a single media item by TMDB ID (for resolving admin picks)
 export async function getMediaById(tmdbId: number, mediaType: string): Promise<TMDBMediaItem | null> {
   const endpoint = mediaType === 'tv' ? `/tv/${tmdbId}` : `/movie/${tmdbId}`
-  const data = await tmdbFetch<any>(endpoint)
+  const data = await tmdbFetch<TMDBMediaItem>(endpoint)
   if (!data) return null
   return { ...data, media_type: mediaType } as TMDBMediaItem
 }
@@ -284,7 +305,7 @@ export async function getDetails(type: 'movie' | 'tv', id: string | number) {
 }
 
 export async function getSeason(tvId: string | number, seasonNumber: number) {
-  return tmdbFetch<{ episodes: any[]; name: string; season_number: number }>(
+  return tmdbFetch<{ episodes: TMDBEpisode[]; name: string; season_number: number }>(
     `/tv/${tvId}/season/${seasonNumber}`
   )
 }
@@ -296,7 +317,7 @@ export async function searchMulti(query: string): Promise<TMDBMediaItem[]> {
   const qLower = query.toLowerCase()
   
   // Hybrid Sort: Relevance (Text Match) + Popularity
-  return results.sort((a: any, b: any) => {
+  return results.sort((a, b) => {
     const titleA = (a.title || a.name || '').toLowerCase()
     const titleB = (b.title || b.name || '').toLowerCase()
     
@@ -357,12 +378,12 @@ export async function getDiscoverByGenre(genreId: string | number, page = 1): Pr
 
 export async function getSimilar(type: 'movie' | 'tv', id: string | number, limit: number = 12): Promise<TMDBMediaItem[]> {
   // Use the recommendations or similar endpoint
-  const data = await tmdbFetch<TMDBSearchResult<any>>(`/${type}/${id}/recommendations`, { page: '1' });
+  const data = await tmdbFetch<TMDBSearchResult<TMDBMediaItem>>(`/${type}/${id}/recommendations`, { page: '1' });
   const results = data?.results || [];
   
   // fallback to similar if recommendations are empty
   if (results.length === 0) {
-    const similarData = await tmdbFetch<TMDBSearchResult<any>>(`/${type}/${id}/similar`, { page: '1' });
+    const similarData = await tmdbFetch<TMDBSearchResult<TMDBMediaItem>>(`/${type}/${id}/similar`, { page: '1' });
     return (similarData?.results || []).map(r => ({ ...r, media_type: type } as TMDBMediaItem)).slice(0, limit);
   }
 
@@ -407,36 +428,10 @@ export async function getRandomReels(): Promise<TMDBMediaItem[]> {
 }
 
 export async function getVideosFromServer(type: string, id: string | number) {
-  const apiKey = getApiKey();
-  if (!apiKey) return [];
-
-  try {
-    const res = await fetch(`https://api.tmdb.org/3/${type}/${id}/videos?api_key=${apiKey}`, { next: { revalidate: 3600 } });
-    if (!res.ok) return [];
-    const data = await res.json();
-    if (!data.results) return [];
-
-    return data.results
-      .filter((v: any) => v.site === 'YouTube')
-      .sort((a: any, b: any) => {
-        const priority = (type: string) => {
-          if (type === 'Clip') return 1;
-          if (type === 'Trailer') return 2;
-          if (type === 'Teaser') return 3;
-          return 4;
-        };
-        return priority(a.type) - priority(b.type);
-      })
-      .map((v: any) => ({
-        key: v.key,
-        name: v.name,
-        type: v.type,
-        official: v.official
-      }));
-  } catch (err) {
-    console.error('getVideosFromServer error:', err);
-    return [];
-  }
+  if (!['movie', 'tv'].includes(type) || !/^\d+$/.test(String(id))) return [];
+  const data = await tmdbFetch<{ results: TMDBVideo[] }>(`/${type}/${id}/videos`);
+  const priority = (kind: string) => kind === 'Clip' ? 1 : kind === 'Trailer' ? 2 : kind === 'Teaser' ? 3 : 4;
+  return (data?.results || []).filter(video => video.site === 'YouTube').sort((a, b) => priority(a.type) - priority(b.type));
 }
 
 export async function getTopRatedMovies(page = 1, region?: string): Promise<TMDBMovie[]> {
@@ -512,7 +507,7 @@ export async function getDeepCatalogData(type: 'movie' | 'tv', startPage: number
     // We use discover endpoint for reliable massive popularity sorting
     const params: Record<string, string> = { page: String(i), sort_by: 'popularity.desc' };
     const endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
-    promises.push(tmdbFetch<TMDBSearchResult<any>>(endpoint, params));
+    promises.push(tmdbFetch<TMDBSearchResult<TMDBMediaItem>>(endpoint, params));
   }
 
   const results = await Promise.all(promises);

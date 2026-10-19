@@ -1,80 +1,31 @@
-import { useState, useRef, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
+import type { MouseEvent, PointerEvent } from 'react';
 
-interface Options {
-  delay?: number;
-  shouldPreventDefault?: boolean;
-}
-
-export default function useLongPress(
-  onLongPress: (e: any) => void,
-  onClick?: (e: any) => void,
-  { delay = 600, shouldPreventDefault = true }: Options = {}
-) {
-  const [longPressTriggered, setLongPressTriggered] = useState(false);
-  const timeout = useRef<NodeJS.Timeout>(null);
-  const target = useRef<any>(null);
-  const startPos = useRef<{ x: number; y: number } | null>(null);
-
-  const start = useCallback(
-    (event: any) => {
-      // For touch, record the starting position
-      if (event.touches && event.touches[0]) {
-        startPos.current = { x: event.touches[0].clientX, y: event.touches[0].clientY };
-      }
-      
-      if (shouldPreventDefault && event.target) {
-        event.target.addEventListener('contextmenu', preventDefault, {
-          passive: false
-        });
-      }
-      target.current = event.target;
-      timeout.current = setTimeout(() => {
-        onLongPress(event);
-        setLongPressTriggered(true);
-      }, delay);
-    },
-    [onLongPress, delay, shouldPreventDefault]
-  );
-
-  const clear = useCallback(
-    (event: any, shouldTriggerClick = true) => {
-      if (timeout.current) clearTimeout(timeout.current);
-      if (shouldTriggerClick && !longPressTriggered && onClick) onClick(event);
-      setLongPressTriggered(false);
-      startPos.current = null;
-      if (shouldPreventDefault && target.current) {
-        target.current.removeEventListener('contextmenu', preventDefault);
-      }
-    },
-    [onClick, longPressTriggered, shouldPreventDefault]
-  );
-
-  const handleMove = useCallback((event: any) => {
-    if (!startPos.current || !event.touches[0]) return;
-    
-    const moveX = Math.abs(event.touches[0].clientX - startPos.current.x);
-    const moveY = Math.abs(event.touches[0].clientY - startPos.current.y);
-    
-    // If moved more than 10px, it's a scroll/swipe, cancel long press
-    if (moveX > 10 || moveY > 10) {
-      if (timeout.current) {
-        clearTimeout(timeout.current);
-        timeout.current = null;
-      }
-    }
-  }, []);
-
+type Point = { clientX: number; clientY: number };
+export default function useLongPress(onLongPress: (point: Point) => void, onClick?: (point: Point) => void, { delay = 600, shouldPreventDefault = true }: { delay?: number; shouldPreventDefault?: boolean } = {}) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const start = useRef<Point | null>(null);
+  const triggered = useRef(false);
+  const cancel = () => { if (timer.current) clearTimeout(timer.current); timer.current = null; start.current = null; };
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   return {
-    onMouseDown: (e: any) => start(e),
-    onTouchStart: (e: any) => start(e),
-    onMouseUp: (e: any) => clear(e),
-    onMouseLeave: (e: any, shouldTriggerClick = false) => clear(e, shouldTriggerClick),
-    onTouchEnd: (e: any) => clear(e),
-    onTouchMove: (e: any) => handleMove(e)
+    onPointerDown: (event: PointerEvent<HTMLElement>) => {
+      if (event.button !== 0) return;
+      cancel();
+      const point = { clientX: event.clientX, clientY: event.clientY };
+      start.current = point; triggered.current = false;
+      timer.current = setTimeout(() => { triggered.current = true; onLongPress(point); }, delay);
+    },
+    onPointerMove: (event: PointerEvent<HTMLElement>) => {
+      if (start.current && (Math.abs(event.clientX - start.current.clientX) > 10 || Math.abs(event.clientY - start.current.clientY) > 10)) cancel();
+    },
+    onPointerUp: cancel,
+    onPointerLeave: cancel,
+    onPointerCancel: cancel,
+    onClickCapture: (event: MouseEvent<HTMLElement>) => {
+      if (triggered.current && shouldPreventDefault) { event.preventDefault(); event.stopPropagation(); }
+      else onClick?.({ clientX: event.clientX, clientY: event.clientY });
+      triggered.current = false;
+    },
   };
 }
-
-const preventDefault = (event: any) => {
-  if (!event.cancelable) return;
-  event.preventDefault();
-};

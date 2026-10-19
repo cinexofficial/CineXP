@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 
 const gradients = [
   // 1. Original (Purple)
@@ -38,53 +38,10 @@ const gradients = [
 ];
 
 export default function BackgroundGradient() {
-  const [gradient, setGradient] = useState(gradients[0]);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-    const updateGradient = () => {
-      // 8 hours = 28800000 ms
-      const epoch8Hour = Math.floor(Date.now() / 28800000);
-      
-      // Use a more robust mixing function for the index
-      // Multiplying by a prime number and adding an offset helps spread the results
-      const index = (epoch8Hour * 17 + 5) % gradients.length;
-      
-      setGradient(gradients[index]);
-    };
-
-    updateGradient();
-    const interval = setInterval(updateGradient, 60000);
+  const epoch = useSyncExternalStore(callback => {
+    const interval = setInterval(callback, 60000);
     return () => clearInterval(interval);
-  }, []);
-
-  if (!mounted) {
-    // Return a default background during SSR to prevent hydration mismatch,
-    // we use the current one as fallback
-    return (
-      <div 
-        style={{ 
-          position: "fixed", 
-          inset: 0, 
-          zIndex: -100, 
-          pointerEvents: "none", 
-          background: gradients[0]
-        }} 
-      />
-    );
-  }
-
-  return (
-    <div 
-      style={{ 
-        position: "fixed", 
-        inset: 0, 
-        zIndex: -100, 
-        pointerEvents: "none", 
-        background: gradient,
-        transition: "background 2s ease-in-out" 
-      }} 
-    />
-  );
+  }, () => Math.floor(Date.now() / 28800000), () => 0);
+  const gradient = gradients[(epoch * 17 + 5) % gradients.length];
+  return <div style={{ position: 'fixed', inset: 0, zIndex: -100, pointerEvents: 'none', background: gradient }} />;
 }

@@ -4,9 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",
+    "preview": "node scripts/preview.mjs",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint src tests next.config.ts playwright.config.ts prisma.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "node --test tests/unit/*.test.mjs",
+    "test:e2e": "playwright test",
+    "test": "npm run test:unit && npm run test:e2e",
     "postinstall": "prisma generate"
   },
   "dependencies": {
@@ -34,9 +39,12 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.64.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/youtube": "^0.3.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.2",
     "typescript": "^5"

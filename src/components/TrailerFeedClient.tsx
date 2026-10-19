@@ -17,13 +17,13 @@ import { getImageUrl } from '@/lib/tmdb';
 import { generateSlug } from "@/lib/utils";
 import { ReelVideo } from '@/lib/reels';
 import { addToWatchlist, removeFromWatchlist, isInWatchlist } from '@/lib/watchlist';
-import ReelAdSlide from './ads/ReelAdSlide';
+import { PLAYER_SANDBOX } from '@/lib/player-policy';
+
 
 // ─── Global YT types ─────────────────────────────────────────────────────────
 declare global {
   interface Window {
     onYouTubeIframeAPIReady: () => void;
-    YT: any;
     _ytApiCallbacks: Array<() => void>;
   }
 }
@@ -81,27 +81,10 @@ export default function TrailerFeedClient({ initialReels, initialPage }: Trailer
     }
   }, [page, loadingMore]);
 
-  // Ad slides appear after every 3rd reel (indices 2, 5, 8, ...)
-  // Scroll layout: [reel0, reel1, reel2, AD, reel3, reel4, reel5, AD, ...]
-  // Group size = 4 (3 reels + 1 ad)
-  const AD_INTERVAL = 3;
-  const GROUP_SIZE = AD_INTERVAL + 1;
-
   const handleScroll = useCallback(() => {
-    if (!containerRef.current) return;
-    const scrollIdx = Math.round(containerRef.current.scrollTop / containerRef.current.offsetHeight);
-
-    const groupNumber = Math.floor(scrollIdx / GROUP_SIZE);
-    const posInGroup = scrollIdx % GROUP_SIZE;
-
-    let reelIdx: number;
-    if (posInGroup === AD_INTERVAL) {
-      // User is on an ad slide — keep the previous active reel paused
-      reelIdx = activeIndex;
-    } else {
-      reelIdx = groupNumber * AD_INTERVAL + posInGroup;
-    }
-
+    const container = containerRef.current;
+    if (!container || !container.clientHeight) return;
+    const reelIdx = Math.max(0, Math.min(reels.length - 1, Math.round(container.scrollTop / container.clientHeight)));
     if (reelIdx !== activeIndex) setActiveIndex(reelIdx);
     if (reelIdx >= reels.length - 4 && !loadingMore) fetchMore();
   }, [activeIndex, reels.length, loadingMore, fetchMore]);
@@ -119,7 +102,7 @@ export default function TrailerFeedClient({ initialReels, initialPage }: Trailer
         onScroll={handleScroll}
         className="reels-wrap"
         style={{
-          height: '100dvh',
+          height: 'calc(100dvh - var(--site-header-height))',
           overflowY: 'scroll',
           scrollSnapType: 'y mandatory',
           scrollbarWidth: 'none',
@@ -138,8 +121,6 @@ export default function TrailerFeedClient({ initialReels, initialPage }: Trailer
               onToggleMute={() => setMuted(m => !m)}
               onVideoError={handleVideoError}
             />
-            {/* Show an ad after every 3rd reel */}
-            {(i + 1) % 3 === 0 && <ReelAdSlide key={`ad-${i}`} />}
           </React.Fragment>
         ))}
       </div>
@@ -163,7 +144,7 @@ export default function TrailerFeedClient({ initialReels, initialPage }: Trailer
 }
 
 // ─── Helper: safely destroy a YT player and restore the placeholder div ──────
-function destroyPlayerSafely(playerRef: React.MutableRefObject<any>, wrapperRef: React.RefObject<HTMLDivElement | null>, playerId: string) {
+function destroyPlayerSafely(playerRef: React.MutableRefObject<YT.Player | null>, wrapperRef: React.RefObject<HTMLDivElement | null>, playerId: string) {
   if (!playerRef.current) return;
   try {
     // Get the iframe element before destroying
@@ -208,7 +189,7 @@ function ReelSlide({
   const { item, video } = reel;
   const router = useRouter();
   const playerId = `yt-player-${slideIndex}-${video.key}`;
-  const playerRef = useRef<any>(null);
+  const playerRef = useRef<YT.Player | null>(null);
   const ytWrapperRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -264,35 +245,40 @@ function ReelSlide({
         console.warn(`[ReelSlide] Target element #${playerId} not found, skipping init`);
         return;
       }
-      playerRef.current = new window.YT.Player(playerId, {
-        videoId: video.key,
-        width: '100%',
-        height: '100%',
-        playerVars: {
-          autoplay: 0,   // Don't autoplay — the play/pause effect handles it
-          controls: 0,
-          mute: 1,       // ALWAYS 1 for autoplay policy
-          loop: 1,
-          playlist: video.key,
-          modestbranding: 1,
-          rel: 0,
-          iv_load_policy: 3,
-          playsinline: 1,
-        },
+      // Create the iframe with restrictions before it navigates. The API can
+      // attach to an existing frame without replacing its sandbox attributes.
+      // https://developers.google.com/youtube/iframe_api_reference#Loading_a_video_player
+      const embed = document.createElement('iframe');
+      embed.id = playerId;
+      embed.title = `${item.title || item.name || 'Title'} trailer`;
+      embed.width = '100%';
+      embed.height = '100%';
+      embed.style.border = '0';
+      embed.setAttribute('sandbox', PLAYER_SANDBOX);
+      embed.allow = 'autoplay; encrypted-media; fullscreen; picture-in-picture';
+      embed.referrerPolicy = 'strict-origin-when-cross-origin';
+      const parameters = new URLSearchParams({
+        enablejsapi: '1', origin: window.location.origin, autoplay: '0',
+        controls: '0', mute: '1', loop: '1', playlist: video.key,
+        rel: '0', iv_load_policy: '3', playsinline: '1',
+      });
+      embed.src = `https://www.youtube.com/embed/${encodeURIComponent(video.key)}?${parameters}`;
+      targetEl.replaceWith(embed);
+      playerRef.current = new window.YT.Player(embed, {
         events: {
-          onReady: (e: any) => {
+          onReady: (e: YT.PlayerEvent) => {
             if (cancelled) return;
             setReady(true);
             setDuration(e.target.getDuration());
             // If this slide is already the active one, start playing immediately
             if (isActiveRef.current) {
-              e.target.setPlaybackQuality('auto');
+              e.target.setPlaybackQuality('default');
               e.target.playVideo();
             } else {
               e.target.setPlaybackQuality('small');
             }
           },
-          onStateChange: (e: any) => {
+          onStateChange: (e: YT.OnStateChangeEvent) => {
             if (e.data === window.YT.PlayerState.PLAYING) {
               setHasBuffered(true);
               if (!isActiveRef.current) {
@@ -300,7 +286,7 @@ function ReelSlide({
                 e.target.pauseVideo();
                 setIsPlaying(false);
               } else {
-                e.target.setPlaybackQuality('auto');
+                e.target.setPlaybackQuality('default');
                 setIsPlaying(true);
               }
             }
@@ -308,11 +294,11 @@ function ReelSlide({
               setIsPlaying(false);
             }
             if (e.data === window.YT.PlayerState.ENDED) {
-              e.target.seekTo(0);
+              e.target.seekTo(0, true);
               e.target.playVideo();
             }
           },
-          onError: (e: any) => {
+          onError: (e: YT.OnErrorEvent) => {
             if ([2, 5, 100, 101, 150].includes(e.data)) {
               onVideoError(reel.id);
             }
@@ -343,7 +329,7 @@ function ReelSlide({
 
     try {
       if (isActive) {
-        if (playerRef.current.setPlaybackQuality) playerRef.current.setPlaybackQuality('auto');
+        if (playerRef.current.setPlaybackQuality) playerRef.current.setPlaybackQuality('default');
         playerRef.current.playVideo();
         setIsPlaying(true);
       } else if (hasBuffered) {
@@ -407,7 +393,7 @@ function ReelSlide({
     e.stopPropagation();
     const mediaType = item.media_type || 'movie';
     const url = `${window.location.origin}/media/${mediaType}/${generateSlug(item.id, title)}`;
-    const shareTitle = (item as any).title || (item as any).name || 'CineXP';
+    const shareTitle = item.title || item.name || 'CineXP';
 
     if (navigator.share) {
       navigator.share({
@@ -432,19 +418,19 @@ function ReelSlide({
 
   // ── Watchlist Persistence ───────────────────────────────────────────────────
   useEffect(() => {
-    setInWatchlist(isInWatchlist(item.id));
+    setInWatchlist(isInWatchlist(item.id, item.media_type === 'tv' ? 'tv' : 'movie'));
   }, [item.id]);
 
   const toggleWatchlist = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (inWatchlist) {
-      removeFromWatchlist(item.id);
+      removeFromWatchlist(item.id, item.media_type === 'tv' ? 'tv' : 'movie');
       setInWatchlist(false);
     } else {
       const watchlistItem = {
         id: item.id,
         type: (item.media_type as 'movie' | 'tv') || 'movie',
-        title: (item as any).title || (item as any).name || 'Unknown',
+        title: item.title || item.name || 'Unknown',
         poster_path: item.poster_path,
         backdrop_path: item.backdrop_path,
       };
@@ -453,13 +439,13 @@ function ReelSlide({
     }
   };
 
-  const title = (item as any).title || (item as any).name || 'Unknown';
-  const year  = ((item as any).release_date || (item as any).first_air_date || '').slice(0, 4);
-  const rating = ((item as any).vote_average || 0).toFixed(1);
+  const title = item.title || item.name || 'Unknown';
+  const year  = (item.release_date || item.first_air_date || '').slice(0, 4);
+  const rating = (item.vote_average || 0).toFixed(1);
 
   return (
     <div style={{
-      height: '100dvh', width: '100%',
+      height: 'calc(100dvh - var(--site-header-height))', width: '100%',
       scrollSnapAlign: 'start', scrollSnapStop: 'always',
       position: 'relative', overflow: 'hidden',
       background: '#000',
@@ -478,7 +464,7 @@ function ReelSlide({
       <div style={{
         position: 'relative', zIndex: 1,
         width: '100%', height: '100%',
-        maxWidth: 'calc(100dvh * 9 / 16)',
+        maxWidth: 'calc((100dvh - var(--site-header-height)) * 9 / 16)',
         background: '#000',
         boxShadow: '0 0 100px rgba(0,0,0,0.9)',
         overflow: 'hidden',
@@ -661,9 +647,8 @@ function ReelSlide({
 
       {/* ── Swipe hint ── */}
       {isActive && !isLast && (
-        <motion.div
-          animate={{ y: [0, 8, 0], opacity: [0.4, 0.9, 0.4] }}
-          transition={{ repeat: Infinity, duration: 2.2 }}
+        <div
+          aria-hidden="true"
           style={{
             position: 'absolute', bottom: 22,
             left: '50%', transform: 'translateX(-50%)',
@@ -671,7 +656,7 @@ function ReelSlide({
           }}
         >
           <VscChevronDown size={26} />
-        </motion.div>
+        </div>
       )}
     </div>
   );

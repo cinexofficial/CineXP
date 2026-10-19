@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { motion, type HTMLMotionProps } from "framer-motion";
+import { motion, type HTMLMotionProps } from "motion/react";
 
 interface ScrollRevealProps extends HTMLMotionProps<"div"> {
   children: React.ReactNode;

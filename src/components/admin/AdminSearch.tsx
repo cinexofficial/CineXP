@@ -54,8 +54,8 @@ export default function AdminSearch({ onSelect, placeholder = 'Search movies & T
         setResults(data.results || [])
         setIsOpen(true)
       }
-    } catch (err: any) {
-      if (err?.name !== 'AbortError') {
+    } catch (err) {
+      if (!(err instanceof Error && err.name === 'AbortError')) {
         setResults([])
       }
     } finally {

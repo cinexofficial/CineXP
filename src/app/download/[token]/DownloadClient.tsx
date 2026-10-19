@@ -1,221 +1,147 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import styles from './download.module.css';
-import AdBanner from '@/components/ads/AdBanner';
-import AdNative from '@/components/ads/AdNative';
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import {
+  VscArrowLeft,
+  VscCloudDownload,
+  VscError,
+  VscFile,
+} from "react-icons/vsc";
+import AdSlot from "@/components/ads/AdSlot";
+import styles from "./download.module.css";
+import { trackExperience } from '@/lib/experience-analytics';
 
-interface DownloadMeta {
-  t: string;
-  q: string;
-  s: string;
-  p: string;
-  sub?: string;
+interface Download {
+  url: string;
+  title: string;
+  quality: string;
+  size: string;
+  poster: string;
+  subtitleUrl?: string;
 }
 
-export default function DownloadClient({ token, waitingPageEnabled = true }: { token: string, waitingPageEnabled?: boolean }) {
-  const router = useRouter();
-  const [meta, setMeta] = useState<DownloadMeta | null>(null);
-  const [timeLeft, setTimeLeft] = useState(10);
-  const [status, setStatus] = useState<'loading' | 'countdown' | 'ready' | 'error'>('loading');
-  const [finalUrl, setFinalUrl] = useState<string | null>(null);
-  const [finalSubUrl, setFinalSubUrl] = useState<string | null>(null);
-  const [errorMsg, setErrorMsg] = useState('');
-  
-
+export default function DownloadClient({
+  token,
+  waitingPageEnabled = true,
+  networkEnabled = false,
+}: {
+  token: string;
+  waitingPageEnabled?: boolean;
+  networkEnabled?: boolean;
+}) {
+  const [download, setDownload] = useState<Download | null>(null);
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    // 1. Decode token for immediate display
-    try {
-      const payloadB64 = token.split('.')[0];
-      const decoded: any = JSON.parse(Buffer.from(payloadB64, 'base64').toString('utf-8'));
-      setMeta({ t: decoded.t, q: decoded.q, s: decoded.s, p: decoded.p, sub: decoded.sub });
-      setStatus('countdown');
-    } catch (e) {
-      setStatus('error');
-      setErrorMsg('Invalid download link.');
-      setTimeout(() => router.push('/'), 3000);
-      return;
-    }
-
-    // Popunder & Social Bar are loaded globally via layout.tsx — no duplicate injection needed
-  }, [token, router]);
-
-  useEffect(() => {
-    // Timer logic
-    if (status !== 'countdown') return;
-
-    if (timeLeft > 0) {
-      const timer = setTimeout(() => setTimeLeft(t => t - 1), 1000);
-      return () => clearTimeout(timer);
-    } else {
-      // Timer finished -> resolve actual URL
-      resolveDownload();
-    }
-  }, [timeLeft, status]);
-
-  const resolveDownload = async () => {
-    try {
-      const res = await fetch(`/api/download/resolve?token=${token}`);
-      const data = await res.json();
-      
-      if (res.ok && data.url) {
-        setFinalUrl(data.url);
-        if (data.subtitleUrl) setFinalSubUrl(data.subtitleUrl);
-        setStatus('ready');
-      } else {
-        setStatus('error');
-        setErrorMsg(data.error || 'Link expired. Please try again.');
-      }
-    } catch {
-      setStatus('error');
-      setErrorMsg('Network error. Please try again.');
-    }
-  };
-
-  const handleDownloadClick = () => {
-    if (finalUrl) {
-      // Open download in new tab IMMEDIATELY to bypass popup blockers
-      window.open(finalUrl, '_blank');
-
-      if (finalSubUrl) {
-        // Delay subtitle slightly to let the first download start
-        setTimeout(() => {
-          const a = document.createElement('a');
-          a.href = finalSubUrl;
-          a.download = '';
-          a.style.display = 'none';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-        }, 800);
-      }
-      
-      // Redirect current page to Smartlink after ensuring sub download has time to fire
-      setTimeout(() => {
-        window.location.href = 'https://eagerdazzle.com/tsy4jdcf?key=a1098a5f49912838eff6c5dd7f197787';
-      }, 1500);
-    }
-  };
-
-  if (status === 'loading') return null;
-
-  const progressPct = ((10 - timeLeft) / 10) * 100;
-
+    const controller = new AbortController();
+    fetch(`/api/download/resolve?token=${encodeURIComponent(token)}`, {
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok || !data.url)
+          throw new Error(data.error || "This download is unavailable.");
+        const fileUrl = new URL(data.url, window.location.origin);
+        if (!['https:', 'http:'].includes(fileUrl.protocol)) throw new Error('This download link is not supported.');
+        data.url = fileUrl.href;
+        if (data.subtitleUrl) {
+          try {
+            const subtitleUrl = new URL(data.subtitleUrl, window.location.origin);
+            data.subtitleUrl = ['https:', 'http:'].includes(subtitleUrl.protocol) ? subtitleUrl.href : undefined;
+          } catch { data.subtitleUrl = undefined; }
+        }
+        return data as Download;
+      })
+      .then((data) => {
+        if (!controller.signal.aborted) {
+          setDownload(data);
+          setError("");
+        }
+      })
+      .catch((reason) => {
+        if (!controller.signal.aborted)
+          setError(
+            reason.message || "Unable to load your download. Please try again.",
+          );
+      });
+    return () => controller.abort();
+  }, [token, attempt]);
   return (
-    <div className={styles.downloadContainer}>
-      <div className={styles.mainGrid}>
-        
-        {/* Left Sidebar (Desktop) */}
-        {waitingPageEnabled && (
-          <div className={`${styles.adWrapper} ${styles.desktopAd} ${styles.sidebarAd}`}>
-            <AdBanner adKey="87b1f98e2b43417d714893dfa11c7e9f" width={300} height={250} />
+    <div className={styles.wrapper}>
+      <Link className="cx-text-link" href="/">
+        <VscArrowLeft /> Back to discover
+      </Link>
+      <div className={styles.card} aria-busy={!download && !error}>
+        <p className="cx-eyebrow">Your download</p>
+        {error ? (
+          <div className="cx-empty" role="alert">
+            <VscError />
+            <h1>Let’s try that again.</h1>
+            <p>{error}</p>
+            <button
+              className="cx-button"
+              onClick={() => {
+                setError("");
+                setAttempt(attempt + 1);
+              }}
+            >
+              Retry download
+            </button>
+          </div>
+        ) : download ? (
+          <>
+            <div className={styles.media}>
+              {download.poster && (
+                <img src={download.poster} alt="" width={100} height={150} />
+              )}
+              <div>
+                <h1>{download.title}</h1>
+                <p>
+                  {[download.quality, download.size]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              </div>
+            </div>
+            <div className={styles.ready}>
+              <VscCloudDownload />
+              <div>
+                <h2>Ready when you are.</h2>
+                <p>Your link is ready. Choose a file below.</p>
+              </div>
+            </div>
+            <a
+              className="cx-button"
+              href={download.url}
+              onClick={() => trackExperience('download_link_action', { kind: 'file' })}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <VscCloudDownload /> Download file
+              <span className="sr-only"> (opens in a new tab)</span>
+            </a>
+            {download.subtitleUrl && (
+              <a
+                className="cx-button cx-button--secondary"
+                href={download.subtitleUrl}
+                onClick={() => trackExperience('download_link_action', { kind: 'subtitles' })}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <VscFile /> Download subtitles
+                <span className="sr-only"> (opens in a new tab)</span>
+              </a>
+            )}
+          </>
+        ) : (
+          <div className={styles.loading} role="status">
+            <div className="cx-skeleton" />
+            <p>Finding your download…</p>
           </div>
         )}
-
-        {/* Center Content */}
-        <div className={styles.centerColumn}>
-
-          {/* Desktop Leaderboard */}
-          {waitingPageEnabled && (
-            <div className={`${styles.adWrapper} ${styles.desktopAd} ${styles.leaderboardAd}`}>
-              <AdBanner adKey="636ac374dbb99b948710af913b4a7592" width={728} height={90} />
-            </div>
-          )}
-
-          {/* Big Banner Ad (Above the Dialog Box on all devices) */}
-          {waitingPageEnabled && (
-            <div className={styles.adWrapper} style={{ marginBottom: '1rem', minHeight: '250px' }}>
-              <AdBanner adKey="87b1f98e2b43417d714893dfa11c7e9f" width={300} height={250} />
-            </div>
-          )}
-
-          <div className={styles.glassCard}>
-            
-            {meta && (
-              <div className={styles.movieInfo}>
-                {meta.p && <img src={meta.p} alt={meta.t} className={styles.poster} />}
-                <div className={styles.metadata}>
-                  <h2>{meta.t}</h2>
-                  <p>{meta.q} {meta.s ? `· ${meta.s}` : ''}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Dynamic Ad inside Card - High Visibility (300x250) */}
-            {waitingPageEnabled && (
-              <div className={styles.adWrapper} style={{ marginTop: '0.5rem', marginBottom: '1rem', minHeight: '250px' }}>
-                <AdBanner adKey="87b1f98e2b43417d714893dfa11c7e9f" width={300} height={250} />
-              </div>
-            )}
-
-            {status === 'error' ? (
-              <div className={styles.errorState}>
-                <h3>❌ {errorMsg}</h3>
-                <p style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>Redirecting...</p>
-              </div>
-            ) : status === 'ready' ? (
-              <>
-                <div className={styles.statusText} style={{ color: 'var(--success, #10b981)' }}>
-                  ✅ Ready!
-                </div>
-                <button className={`btn ${styles.downloadButton}`} onClick={handleDownloadClick}>
-                  ⬇ DOWNLOAD NOW
-                </button>
-                <div style={{ 
-                  marginTop: '0.85rem', 
-                  fontSize: '0.78rem', 
-                  color: 'rgba(255, 255, 255, 0.55)', 
-                  textAlign: 'center',
-                  fontStyle: 'italic',
-                  lineHeight: '1.4',
-                  maxWidth: '320px',
-                  marginLeft: 'auto',
-                  marginRight: 'auto'
-                }}>
-                  ⚠️ Please wait <strong style={{ color: '#ffb700' }}>5 seconds</strong> on the redirected page for your download to begin automatically.
-                </div>
-              </>
-            ) : (
-              <>
-                <div 
-                  className={styles.timerWrapper} 
-                  style={{ '--progress': `${progressPct}%` } as React.CSSProperties}
-                >
-                  <div className={styles.timerRing}></div>
-                  <div className={styles.timerNumber}>{timeLeft}</div>
-                </div>
-                <div className={styles.statusText}>
-                  Preparing your download...
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Native Ad (Below the card) */}
-          {waitingPageEnabled && (
-            <div className={styles.adWrapper} style={{ minHeight: '300px', padding: '1rem', marginTop: '1rem' }}>
-              <AdNative />
-            </div>
-          )}
-
-          {/* Extra Bottom Banner Ad (468x60) for 40% Volume Increase */}
-          {waitingPageEnabled && (
-            <div className={styles.adWrapper} style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
-              <AdBanner adKey="47487de96b361fef4cd73964201393c1" width={468} height={60} />
-            </div>
-          )}
-
-        </div>
-
-        {/* Right Sidebar (Desktop) */}
-        {waitingPageEnabled && (
-          <div className={`${styles.adWrapper} ${styles.desktopAd} ${styles.sidebarAd}`}>
-            <AdBanner adKey="87b1f98e2b43417d714893dfa11c7e9f" width={300} height={250} />
-          </div>
-        )}
-
       </div>
+      {waitingPageEnabled && <AdSlot placement="download-below-actions" networkEnabled={networkEnabled} />}
     </div>
   );
 }

@@ -47,7 +47,7 @@ export default function CountdownRow({ upcoming }: { upcoming: TMDBMovie[] }) {
       <div className="grid">
         {upcomingFiltered.slice(0, 6).map((movie, index) => {
           const { days, hours } = getTimeLeft(movie.release_date);
-          const mediaItem = { ...movie, media_type: 'movie' } as any;
+          const mediaItem = { ...movie, media_type: 'movie' };
 
           return (
             <div key={movie.id} style={{ position: 'relative' }}>

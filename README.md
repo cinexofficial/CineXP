@@ -1,36 +1,17 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CineXP
 
-## Getting Started
+Cinematic movie and series discovery with responsive navigation, saved titles, playback progress, direct download actions and restrained display placements.
 
-First, run the development server:
+Use Node.js 24. Install with `npm ci`, then run `npm run preview` for a demo at http://127.0.0.1:3000. This preview uses sample catalog data and public movie artwork; it never connects to the production database or live advertising. Use `npm run dev` with the existing service configuration for integrated development.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+Network ads are unverified by default. Read [comfortable monetization](docs/comfortable-monetization.md) before enabling placements or releasing. It documents the admin settings interface, hosting kill switch, measurement definitions, live verification limits and the first two weeks' comparison.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Checks: `npm run test:unit`, `npm run typecheck`, `npm run lint`, `npm run test:e2e`, and `npm run build`. On Windows with Edge installed, set `$env:PLAYWRIGHT_CHANNEL='msedge'` before browser tests. Stop the preview before those tests.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Service configuration
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Keep the existing database, TMDB, authentication and catalog/source configuration for integrated development. The demo preview deliberately omits the database and uses local catalog fixtures. Database-backed admin settings and third-party playback need separate integration verification.
 
-## Learn More
+Set `DISPLAY_ADS_ENABLED=false` to remove every placement. Network requests require an explicitly verified placement in `ADS_VERIFIED_PLACEMENTS`; leave it empty until the provider integration passes live verification. Never enable popup permissions to restore a failing placement.
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See [implementation verification](docs/implementation-verification.md) for the checks performed and remaining release checks.

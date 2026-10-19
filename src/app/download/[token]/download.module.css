@@ -1,168 +1,81 @@
-.downloadContainer {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-  padding-bottom: 4rem;
-  width: 100%;
+.wrapper {
+  max-width: 820px;
+  margin: 20px auto 40px;
 }
-
-.mainGrid {
-  display: grid;
-  grid-template-columns: 300px 1fr 300px;
-  gap: 1.5rem;
-  align-items: start;
+.card {
+  padding: clamp(24px, 5vw, 48px);
+  margin-top: 28px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
 }
-
-@media (max-width: 1024px) {
-  .mainGrid {
-    grid-template-columns: 1fr;
-    max-width: 500px;
-    margin: 0 auto;
-  }
-}
-
-.centerColumn {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.glassCard {
-  background: var(--glass-bg, rgba(24, 12, 48, 0.98));
-  border: 1px solid var(--glass-border, rgba(157, 0, 255, 0.45));
-  border-radius: 16px;
-  padding: 2rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  backdrop-filter: blur(24px);
-}
-
-.movieInfo {
+.media {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  margin-bottom: 2rem;
-  width: 100%;
-  text-align: left;
+  gap: 24px;
+  margin: 28px 0;
 }
-
-.poster {
-  width: 80px;
-  height: 120px;
-  border-radius: 8px;
+.media img {
+  width: 90px;
+  height: 135px;
+  border-radius: 6px;
   object-fit: cover;
-  box-shadow: 0 4px 12px rgba(157, 0, 255, 0.3);
 }
-
-.metadata h2 {
-  font-size: 1.25rem;
-  margin-bottom: 0.5rem;
+.media h1 {
+  font-size: clamp(24px, 4vw, 36px);
+  font-weight: 500;
+  letter-spacing: -0.04em;
   line-height: 1.2;
 }
-
-.metadata p {
-  font-size: 0.9rem;
-  color: var(--foreground);
-  opacity: 0.7;
+.media p {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--muted);
 }
-
-.timerWrapper {
-  position: relative;
-  width: 120px;
-  height: 120px;
-  margin: 1rem auto 2rem;
-}
-
-.timerRing {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: conic-gradient(var(--primary) var(--progress, 0%), rgba(255, 255, 255, 0.08) 0);
-  transition: --progress 1s linear;
-}
-
-.timerRing::before {
-  content: '';
-  position: absolute;
-  inset: 6px;
-  background: var(--glass-bg, rgba(24, 12, 48, 0.98));
-  border-radius: 50%;
-}
-
-.timerNumber {
-  position: absolute;
-  inset: 0;
+.ready {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 2.5rem;
-  font-weight: 700;
-  color: var(--accent);
-  z-index: 1;
+  gap: 18px;
+  padding: 25px 0;
+  border-top: 1px solid var(--line);
+  margin-top: 30px;
 }
-
-.statusText {
-  font-size: 1.1rem;
+.ready > svg {
+  width: 30px;
+  height: 30px;
+  color: var(--primary);
+}
+.ready h2 {
+  font-size: 21px;
   font-weight: 500;
-  margin-bottom: 1rem;
+  letter-spacing: -0.03em;
 }
-
-.downloadButton {
-  animation: dl-pulse 2s infinite;
-  padding: 1rem 3rem !important;
-  font-size: 1.2rem !important;
-  text-transform: uppercase;
-  letter-spacing: 1px;
+.ready p,
+.loading p {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 7px;
+  line-height: 1.7;
 }
-
-@keyframes dl-pulse {
-  0%, 100% { box-shadow: 0 0 20px var(--primary-glow); }
-  50% { box-shadow: 0 0 40px var(--primary-glow), 0 0 60px rgba(157,0,255,0.2); }
+.card > a {
+  margin: 7px 8px 0 0;
 }
-
-.adWrapper {
-  width: 100%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  overflow: hidden;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.02);
+.loading {
+  padding: 40px 0;
 }
-
-.sidebarAd {
-  min-height: 250px;
+.loading > div {
+  height: 120px;
+  margin-bottom: 20px;
 }
-
-.leaderboardAd {
-  min-height: 90px;
-  margin: 2rem auto;
-}
-
-.mobileAd {
-  min-height: 50px;
-  display: none;
-}
-
-@media (max-width: 1024px) {
-  .desktopAd {
-    display: none;
+@media (max-width: 600px) {
+  .media {
+    gap: 16px;
   }
-  .mobileAd {
+  .media img {
+    width: 65px;
+    height: 98px;
+  }
+  .card > a {
     display: flex;
+    margin-right: 0;
   }
-}
-
-.errorState {
-  color: #ef4444;
-  margin-bottom: 1.5rem;
-}
-
-/* Custom property definition for the conic-gradient animation */
-@property --progress {
-  syntax: '<percentage>';
-  inherits: false;
-  initial-value: 0%;
 }

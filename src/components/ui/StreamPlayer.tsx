@@ -2,7 +2,11 @@
 
 import { useState, useEffect, useRef, forwardRef, useImperativeHandle, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
+import type Plyr from 'plyr'
+import 'plyr/dist/plyr.css'
 import { VscScreenFull } from 'react-icons/vsc'
+import { trackExperience } from '@/lib/experience-analytics'
+import { PLAYER_SANDBOX } from '@/lib/player-policy'
 
 interface StreamPlayerProps {
   embedUrl: string | null | undefined
@@ -13,6 +17,7 @@ interface StreamPlayerProps {
   type?: 'movie' | 'tv'
   season?: number
   episode?: number
+  onRetry?: () => void
 }
 
 export interface StreamPlayerRef {
@@ -37,20 +42,37 @@ const VIDFAST_ORIGINS = [
 const VIDLINK_ORIGIN = 'https://vidlink.pro'
 const VIDSRC_ORIGIN = 'https://vidsrc.mov'
 
-const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl, isPaused, startTime, directVideoObj, tmdbId, type, season, episode }, ref) => {
+const PlayerInstance = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl, isPaused, startTime, directVideoObj, tmdbId, type, season, episode, onRetry }, ref) => {
+  const [failure, setFailure] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [pipSupported, setPipSupported] = useState(false)
   const [isPip, setIsPip] = useState(false)
   const playerContainerRef = useRef<HTMLDivElement>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
-  const pipWindowRef = useRef<any>(null)
+  const pipWindowRef = useRef<Window | null>(null)
 
   // Raw Plyr refs
   const videoRef = useRef<HTMLVideoElement>(null)
-  const plyrInstanceRef = useRef<any>(null)
+  const plyrInstanceRef = useRef<Plyr | null>(null)
   const startTimeSeeked = useRef(false)
   const progressThrottleRef = useRef(0)
   const [nativeReady, setNativeReady] = useState(false)
+  const frameLoaded = useRef(false)
+  const confirmedStart = useRef(false)
+  const trackedFailure = useRef(false)
+  const attemptedSource = useRef('')
+  const measurement = useCallback(() => ({ provider: directVideoObj ? 'native' : embedUrl ? new URL(embedUrl).hostname : 'unavailable', media_type: type || 'movie', title_id: tmdbId || '', season: season || 0, episode: episode || 0 }), [directVideoObj, embedUrl, type, tmdbId, season, episode])
+  useEffect(() => {
+    const identity = JSON.stringify([embedUrl, directVideoObj?.sources, tmdbId, season, episode])
+    if (attemptedSource.current === identity) return
+    attemptedSource.current = identity
+    confirmedStart.current = false
+    trackedFailure.current = false
+    trackExperience('playback_attempt', measurement())
+  }, [measurement, embedUrl, directVideoObj, tmdbId, season, episode])
+  useEffect(() => {
+    if (failure && !trackedFailure.current) { trackedFailure.current = true; trackExperience('playback_failed', measurement()) }
+  }, [failure, measurement])
 
   // Helper to get the raw Plyr or video element
   const getPlayer = useCallback(() => plyrInstanceRef.current, [])
@@ -59,32 +81,32 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
   useImperativeHandle(ref, () => ({
     play: () => {
       const p = getPlayer()
-      if (p) { try { p.play() } catch(e){} }
-      else { iframeRef.current?.contentWindow?.postMessage({ command: 'play', action: 'play' }, '*') }
+      if (p) { try { p.play()?.catch(() => {}) } catch(e){} }
+      else { iframeRef.current?.contentWindow?.postMessage({ command: 'play', action: 'play' }, embedUrl ? new URL(embedUrl).origin : window.location.origin) }
     },
     pause: () => {
       const p = getPlayer()
       if (p) { try { p.pause() } catch(e){} }
-      else { iframeRef.current?.contentWindow?.postMessage({ command: 'pause', action: 'pause' }, '*') }
+      else { iframeRef.current?.contentWindow?.postMessage({ command: 'pause', action: 'pause' }, embedUrl ? new URL(embedUrl).origin : window.location.origin) }
     },
     seek: (time: number) => {
       const p = getPlayer()
       if (p) { try { p.currentTime = time } catch(e){} }
-      else { iframeRef.current?.contentWindow?.postMessage({ command: 'seek', action: 'seek', time }, '*') }
+      else { iframeRef.current?.contentWindow?.postMessage({ command: 'seek', action: 'seek', time }, embedUrl ? new URL(embedUrl).origin : window.location.origin) }
     },
     setVolume: (level: number) => {
       const p = getPlayer()
       if (p) { try { p.volume = level } catch(e){} }
-      else { iframeRef.current?.contentWindow?.postMessage({ command: 'volume', action: 'volume', level }, '*') }
+      else { iframeRef.current?.contentWindow?.postMessage({ command: 'volume', action: 'volume', level }, embedUrl ? new URL(embedUrl).origin : window.location.origin) }
     },
     setMute: (muted: boolean) => {
       const p = getPlayer()
       if (p) { try { p.muted = muted } catch(e){} }
-      else { iframeRef.current?.contentWindow?.postMessage({ command: 'mute', action: 'mute', muted }, '*') }
+      else { iframeRef.current?.contentWindow?.postMessage({ command: 'mute', action: 'mute', muted }, embedUrl ? new URL(embedUrl).origin : window.location.origin) }
     },
     getStatus: () => {
       if (!directVideoObj) {
-        iframeRef.current?.contentWindow?.postMessage({ command: 'getStatus', action: 'getStatus' }, '*')
+        iframeRef.current?.contentWindow?.postMessage({ command: 'getStatus', action: 'getStatus' }, embedUrl ? new URL(embedUrl).origin : window.location.origin)
       }
     }
   }))
@@ -98,7 +120,7 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
       const isVidlink = origin === VIDLINK_ORIGIN
       const isVidsrc = origin === VIDSRC_ORIGIN
 
-      if (!isVidfast && !isVidlink && !isVidsrc) return
+      if ((!isVidfast && !isVidlink && !isVidsrc) || !embedUrl || origin !== new URL(embedUrl).origin || event.source !== iframeRef.current?.contentWindow) return
       if (!data) return
 
       // Handle Progress Tracking (MEDIA_DATA)
@@ -115,6 +137,11 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
 
       // Handle Player Events (Logging for now, can be used for UI updates later)
       if (data.type === 'PLAYER_EVENT') {
+        if (data.data?.event === 'playing' && !confirmedStart.current) {
+          confirmedStart.current = true
+          trackExperience('playback_started', measurement())
+        }
+        if (data.data?.event === 'error') setFailure('This source is unavailable with playback protections enabled. Choose another source above.')
         // const { event: playerEvent, currentTime, duration } = data.data
         // console.log(`[StreamPlayer] Player ${playerEvent} at ${currentTime}s of ${duration}s`)
       }
@@ -122,7 +149,7 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [])
+  }, [embedUrl, measurement])
 
   useEffect(() => {
     if ('documentPictureInPicture' in window) {
@@ -133,9 +160,8 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
   const togglePip = async () => {
     if (!playerContainerRef.current) return;
     
-    // @ts-ignore
     if (!('documentPictureInPicture' in window)) return;
-    const dpip = (window as any).documentPictureInPicture;
+    const dpip = (window as Window & { documentPictureInPicture?: { requestWindow: (options: { width: number; height: number }) => Promise<Window> } }).documentPictureInPicture;
 
     try {
       if (isPip && pipWindowRef.current) {
@@ -144,7 +170,7 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
       }
 
       // Open PiP window
-      const pipWindow = await dpip.requestWindow({
+      const pipWindow = await dpip!.requestWindow({
         width: 800,
         height: 450,
       });
@@ -163,7 +189,7 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
           const link = document.createElement('link');
           link.rel = 'stylesheet';
           link.type = styleSheet.type;
-          link.media = (styleSheet as any).media.mediaText;
+          link.media = styleSheet.media.mediaText;
           link.href = styleSheet.href || '';
           pipWindow.document.head.appendChild(link);
         }
@@ -187,11 +213,13 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
     }
   };
 
-  // Forcefully show the player after 3.5 seconds as a fallback.
+  // Loading the frame is not a confirmed playback start.
   useEffect(() => {
     if (!embedUrl || directVideoObj) return
     setLoaded(false)
-    const timer = setTimeout(() => setLoaded(true), 3500)
+    frameLoaded.current = false
+    setFailure('')
+    const timer = setTimeout(() => { if (!frameLoaded.current) setFailure('This source did not load. Retry it or choose another source above. Playback protections stay enabled.') }, 20000)
     return () => clearTimeout(timer)
   }, [embedUrl, directVideoObj])
 
@@ -199,7 +227,7 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
   useEffect(() => {
     const handleFullscreenChange = async () => {
       const isFullscreen = document.fullscreenElement !== null;
-      const orientation = (screen as any).orientation;
+      const orientation = screen.orientation as ScreenOrientation & { lock?: (orientation: string) => Promise<void> };
 
       if (isFullscreen && orientation && typeof orientation.lock === 'function') {
         try {
@@ -231,7 +259,7 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
   useEffect(() => {
     const p = getPlayer()
     if (p) {
-      try { if (isPaused) p.pause(); else p.play(); } catch(e){}
+      try { if (isPaused) p.pause(); else p.play()?.catch(() => {}); } catch(e){}
       return;
     }
 
@@ -239,7 +267,7 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
     const msg = isPaused 
       ? { command: 'pause', action: 'pause' } 
       : { command: 'play', action: 'play' };
-    iframeRef.current.contentWindow.postMessage(msg, '*');
+    iframeRef.current.contentWindow.postMessage(msg, embedUrl ? new URL(embedUrl).origin : window.location.origin);
   }, [isPaused, loaded, getPlayer]);
 
   // ============================================================
@@ -248,10 +276,12 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
   useEffect(() => {
     if (!directVideoObj || !videoRef.current) return
 
-    let plyrInstance: any = null
+    let plyrInstance: Plyr | null = null
     let destroyed = false
+    let controlsTimer: ReturnType<typeof setTimeout> | undefined
     startTimeSeeked.current = false
     setNativeReady(false)
+    setFailure('')
 
     const qualityOptions = directVideoObj.sources
       .map(s => s.size || 0)
@@ -268,34 +298,6 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
 
     // Dynamically import plyr (browser only) + inject CSS
     import('plyr').then((PlyrModule) => {
-      // Inject Plyr CSS once
-      if (!document.getElementById('plyr-css')) {
-        const link = document.createElement('link')
-        link.id = 'plyr-css'
-        link.rel = 'stylesheet'
-        link.href = 'https://cdn.plyr.io/3.7.8/plyr.css'
-        document.head.appendChild(link)
-      }
-      // Inject sizing fix CSS
-      if (!document.getElementById('plyr-fix-css')) {
-        const style = document.createElement('style')
-        style.id = 'plyr-fix-css'
-        style.textContent = `
-          .plyr { height: 100% !important; }
-          .plyr video { height: 100% !important; transition: object-fit 0.3s ease; }
-          .plyr__video-wrapper { height: 100% !important; padding-bottom: 0 !important; }
-          
-          /* Mobile Controls Fix */
-          @media (max-width: 600px) {
-            .plyr__controls .plyr__controls__item:not([data-plyr="progress"]):not([data-plyr="play"]):not([data-plyr="fullscreen"]):not([data-plyr="settings"]):not(.custom-fill-btn) {
-              display: none !important;
-            }
-            .plyr__time { font-size: 11px !important; }
-          }
-        `
-        document.head.appendChild(style)
-      }
-
       const PlyrClass = PlyrModule.default
       if (!videoRef.current || destroyed) return
 
@@ -330,14 +332,19 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
         },
         captions: { active: true, language: 'en', update: true },
         invertTime: false,
-        keyboard: { focused: true, global: true },
-        autoplay: true,
+        keyboard: { focused: true, global: false },
+        autoplay: false,
       })
 
       plyrInstanceRef.current = plyrInstance
 
       // Wait for the video to be ready, then seek + play
+      plyrInstance.on('error', () => { if (!destroyed) setFailure('This stream couldn’t load. Retry it or choose another source above.'); })
+      plyrInstance.on('playing', () => {
+        if (!destroyed && !confirmedStart.current) { confirmedStart.current = true; trackExperience('playback_started', measurement()) }
+      })
       plyrInstance.on('canplay', () => {
+        if (!plyrInstance || destroyed) return;
         if (!startTimeSeeked.current && startTime && startTime > 0) {
           try { plyrInstance.currentTime = startTime } catch(e){}
           startTimeSeeked.current = true
@@ -350,7 +357,8 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
         setLoaded(true)
 
         // Inject Crop/Fill button into Plyr Controls
-        setTimeout(() => {
+        controlsTimer = setTimeout(() => {
+          if (destroyed) return;
           const controls = videoRef.current?.closest('.plyr')?.querySelector('.plyr__controls');
           if (controls && !controls.querySelector('.custom-fill-btn')) {
             const btn = document.createElement('button');
@@ -379,7 +387,7 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
 
       // Progress tracking (throttled to every 5 seconds)
       plyrInstance.on('timeupdate', () => {
-        if (!tmdbId || !type) return
+        if (!tmdbId || !type || !plyrInstance || destroyed) return
         const now = Date.now()
         if (now - progressThrottleRef.current < 5000) return
         progressThrottleRef.current = now
@@ -414,10 +422,11 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
           console.error('[NativePlayer] Progress save failed', e)
         }
       })
-    })
+    }).catch(() => { if (!destroyed) setFailure('The player couldn’t start. Please try again.'); })
 
     return () => {
       destroyed = true
+      clearTimeout(controlsTimer)
       if (plyrInstance) {
         try { plyrInstance.destroy() } catch(e){}
       }
@@ -444,6 +453,7 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
       className="stream-player" 
       style={{ position: 'relative', width: '100%', height: '100%', background: '#000' }}
     >
+      {failure && <div className="cx-player-error" role="alert"><h3>A brief intermission.</h3><p>{failure}</p><button className="cx-button cx-button--secondary" onClick={onRetry}>Retry stream</button></div>}
       {/* Loading Overlay (only for iframe providers) */}
       <AnimatePresence>
         {!loaded && !directVideoObj && (
@@ -578,13 +588,16 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
             </div>
           ) : (
             <iframe
+              title="Streaming player"
               ref={iframeRef}
               src={embedUrl!}
               allowFullScreen
               frameBorder="0"
               allow="encrypted-media; fullscreen"
-              {...(embedUrl?.includes('piexe411qok.com') ? { sandbox: "allow-scripts allow-same-origin allow-forms allow-presentation" } : {})}
-              onLoad={() => setLoaded(true)}
+              sandbox={PLAYER_SANDBOX}
+              referrerPolicy="strict-origin-when-cross-origin"
+              onLoad={() => { frameLoaded.current = true; setLoaded(true) }}
+              onError={() => setFailure('This source is unavailable with playback protections enabled. Choose another source above.')}
               style={{
                 width: '100%',
                 height: '100%',
@@ -600,6 +613,14 @@ const StreamPlayer = forwardRef<StreamPlayerRef, StreamPlayerProps>(({ embedUrl,
   )
 })
 
+PlayerInstance.displayName = 'PlayerInstance'
+
+// Plyr owns and replaces its video DOM. Remount the complete boundary on retry,
+// rather than reusing a ref to a video element that destroy() detached.
+const StreamPlayer = forwardRef<StreamPlayerRef, Omit<StreamPlayerProps, 'onRetry'>>((props, ref) => {
+  const [attempt, setAttempt] = useState(0)
+  return <PlayerInstance key={attempt} {...props} ref={ref} onRetry={() => setAttempt(value => value + 1)} />
+})
 StreamPlayer.displayName = 'StreamPlayer'
 
 export default StreamPlayer
